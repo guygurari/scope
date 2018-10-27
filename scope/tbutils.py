@@ -1,0 +1,240 @@
+"""TensorBoard utilities, for processing saved TensorFlow events."""
+
+import tensorboard.backend.event_processing.event_multiplexer as emux
+import tensorflow as tf
+import pandas as pd
+import json
+from absl import flags
+
+FLAGS_FILE = 'flags.json'
+STEP_TAG = 'step'
+WALL_TIME_TAG = 'wall_time'
+FLAGS = flags.FLAGS
+
+def _get_flags_dict():
+    """Returns a dictionary of flag values."""
+    flags_dict = {}
+    flags_dict_by_module = FLAGS.flags_by_module_dict()
+    for module, val in flags_dict_by_module.items():
+        module_flags_dict = {flag.name: flag.value for flag in val}
+        flags_dict.update(module_flags_dict)
+    return flags_dict
+
+
+def save_run_flags(run_logdir):
+    """Save the experiment's flags.
+
+    Args:
+        rundir: The run's log dir.
+    Returns:
+        A dict containing the experiment's flags.
+    """
+    flags_dict = _get_flags_dict()
+    flags_as_json = json.dumps(flags_dict)
+    with tf.gfile.GFile('{}/{}'.format(run_logdir, FLAGS_FILE), 'w') as f:
+        f.write(flags_as_json)
+
+
+def load_run_flags(run_logdir, full_flags=False):
+    """Load the experiment's flags.
+
+    Args:
+        rundir: The run's log dir.
+        full_fla
+gs: If False (default), only load the main module's flags.
+            If True, load all flags set by all modules.
+    Returns:
+        A dict containing the experiment's flags.
+    """
+    with tf.gfile.GFile('{}/{}'.format(run_logdir, FLAGS_FILE), 'r') as f:
+        return json.load(f)
+
+
+class EventLoader:
+    """Reads scalar and tensor events written in TensorBoard format and
+    converts them to DataFrames for easy analysis."""
+    def __init__(self, logdir):
+        """Loads the events of all runs under the given directory.
+        
+        The directory should contain runs and event files in the same format
+        used by TensorBoard.
+
+        Args:
+          logdir: The string directory name containing event files.
+        """
+        self.logdir = logdir
+        self.event_mux = emux.EventMultiplexer().AddRunsFromDirectory(
+            self.logdir)
+        self.event_mux.Reload()
+
+    def reload(self):
+        """Reloads the new events that have been added since the object
+        was constructed or since the last reload() was called."""
+        self.event_mux.Reload()
+
+    def tags(self, run):
+        """Returns a list of string tag names for the given run.
+        
+        Args:
+            run: string run name.
+        """
+        runs = self.event_mux.Runs()
+        run_tags = runs[run]
+        return run_tags['scalars'] + run_tags['tensors']
+
+    def runs(self):
+        """Returns a list of available string run names."""
+        return list(self.event_mux.Runs().keys())
+
+    def run_dirs(self):
+        """Returns a dict mapping run names to run directories."""
+        return self.event_mux.RunPaths()
+
+    def _single_run_events(self, run, tags):
+        """Returns an events DataFrame for a single run."""
+        # Start with a DataFrame that includes all the steps and their wall
+        # times, by looking at the STEP_TAG tag. We record this tag at every
+        # step where every other measurement takes place.
+        #
+        # This makes joining with other measurements easier, because all
+        # measurements include a wall time, and we want to have a reference
+        # wall time.
+        run_df = pd.DataFrame(
+            [[s.step, s.wall_time] for s
+                in self.event_mux.Scalars(run, STEP_TAG)],
+            columns=[STEP_TAG, WALL_TIME_TAG])
+        run_df.set_index(STEP_TAG, inplace=True)
+
+        if tags is None:
+            run_tags = self.tags(run)
+        else:
+            run_tags = tags
+
+        # Do not include 'step' tag because it's already the index,
+        # and it messes up the DataFrame.
+        if STEP_TAG in run_tags:
+            run_tags.remove(STEP_TAG)
+
+        for tag in run_tags:
+            try:
+                scalars = self.event_mux.Scalars(run, tag)
+                scalar_data = [[s.step, s.value] for s in scalars]
+                run_df = self._join_with_timeseries(
+                    run_df, scalar_data, tag)
+                scalar_found = True
+            except KeyError:
+                scalar_found = False
+
+            try:
+                tensors = self.event_mux.Tensors(run, tag)
+                tensor_data = [[t.step, tf.make_ndarray(t.tensor_proto)]
+                                for t in tensors]
+                run_df = self._join_with_timeseries(
+                    run_df, tensor_data, tag)
+                tensor_found = True
+            except KeyError:
+                tensor_found = False
+
+            if not scalar_found and not tensor_found:
+                raise ValueError(
+                    'Tag {} not found as scalar or tensor'.format(tag))
+
+        return run_df
+
+    def events(self, runs=None, tags=None):
+        """Returns a map of event data, mapping each run name to a DataFrame
+        containing the run's events.
+        
+        Args:
+          runs: A sequence of string run names. If None, use all runs.
+          tags: A sequence of string tag names. If None, all tags are included.
+
+        Returns:
+          A map run -> DataFrame, where the DataFrame contains the relevant 
+          events with the given tags as columns. Events of scalar and tensor
+          types are included.
+        """
+        if runs is None:
+            runs = self.runs()
+        result = {}
+        for run in runs:
+            result[run] = self._single_run_events(run, tags)
+        return result
+
+    def _join_with_timeseries(self, df, time_series, tag):
+        ts_df = pd.DataFrame(time_series, columns=[STEP_TAG, tag])
+        ts_df.set_index(STEP_TAG, inplace=True)
+        return df.join(ts_df, how='outer')
+
+
+class ExperimentLoader:
+    """Loads experiment events and flags."""
+    def __init__(self, logdir):
+        """Loads all events under the given directory.
+
+        The directory should contain runs and event files in the same format
+        used by TensorBoard, plus the flags used to run each experiment
+        as saved by `save_run_flags`.
+
+        Args:
+          logdir: The string directory name containing event files.
+        """
+        self.logdir = logdir
+        self.event_loader = EventLoader(logdir)
+        self._load_flags()
+
+    def reload(self):
+        """Reload the experiment data without reloading existing events."""
+        self.event_loader.reload()
+        self._load_flags()
+
+    def runs(self):
+        """Returns a list of loaded string run names."""
+        return self.event_loader.runs()
+
+    def events(self, runs=None, tags=None):
+        """Returns a map of event data, mapping each run name to a DataFrame
+        containing the run's events.
+        
+        Args:
+          runs: A sequence of string run names. If None, include all runs.
+            If it's a dict, it is treated as criteria for `select`ing
+            the experiments.
+          tags: A sequence of string tag names. If None, include all tags.
+
+        Returns:
+          A map run -> DataFrame, where the DataFrame contains the relevant 
+          events with the given tags as columns. Events of scalar and tensor
+          types are included.
+        """
+        if type(runs) is dict:
+            runs = self.select(criteria=runs)
+        return self.event_loader.events(runs, tags)
+
+    def _flags_match_criteria(self, run_flags, criteria):
+        """Returns whether the given flags dict matches the criteria dict."""
+        for flag, val in criteria.items():
+            if run_flags[flag] != val:
+                return False
+        return True
+
+    def select(self, criteria):
+        """Select experiments based on the given flag criteria.
+        
+        Args:
+            criteria: A dict mapping flag names to desired values.
+                All flag values must match.
+        Returns:
+            A list of run names matching the given criteria.
+        """
+        result = []
+        for run in self.runs():
+            if self._flags_match_criteria(self.flags[run], criteria):
+                result.append(run)
+        return result
+
+    def _load_flags(self):
+        """Load the flag files of all experiments."""
+        self.flags = {}
+        for run, path in self.event_loader.run_dirs().items():
+            self.flags[run] = load_run_flags(path)
