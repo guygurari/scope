@@ -139,7 +139,6 @@ class BasicMetricsMeasurement(Measurement):
     def measure(self, logs=None):
         """A Keras callback that collects gradient mean and variance
         statistics."""
-        tf.logging.info('Basic metrics ...')
         logs = logs or {}
         sess = K.get_session()
 
@@ -527,7 +526,7 @@ class FullHessianMeasurement(Measurement):
 
 
 class GaussiansMeasurement(Measurement):
-    """Measure part of the Hessian spectrum."""
+    """Measure basic quantities when using Gaussian mixture."""
     def __init__(self, writer, model, freq,
                  x_train, y_train,
                  grad_measurement=None):
@@ -572,6 +571,23 @@ class GaussiansMeasurement(Measurement):
 
         # if self.grad_measurement is not None:
         #     g = self.grad_measurement.full_batch_g
+
+
+class WeightNormMeasurement(Measurement):
+    """Measure norm of weights by layer."""
+    def __init__(self, writer, model, freq):
+        """
+        :param freq: MeasurementFrequency
+        """
+        super().__init__(freq, writer)
+        self.model = model
+        self.weight_norms = {w.name: tf.norm(w) for w in model.weights}
+
+    def measure(self, logs=None):
+        """Measure weight norm by layer."""
+        norms = K.get_session().run(self.weight_norms)
+        for name, norm in norms.items():
+            self.save_summary('weight_norm/' + name, norm)
 
 
 class ProjectedGradientDescent(keras.optimizers.SGD):

@@ -44,7 +44,7 @@ flags.DEFINE_string('dataset', None,
 flags.DEFINE_float('image_resize', 1, 'Resize images by given factor')
 flags.DEFINE_boolean('dropout', False, 'Use dropout')
 flags.DEFINE_boolean('batch_norm', False, 'Use batch normalization')
-flags.DEFINE_float('lr', 1, 'Learning rate')
+flags.DEFINE_float('lr', 0.1, 'Learning rate')
 flags.DEFINE_float('lr_decay', 1,
                    'Multiply the learning rate by this after every epoch ')
 
@@ -472,6 +472,10 @@ def add_callbacks(
             show_progress=not xFLAGS.show_progress_bar)
         callbacks.append(loss_acc_cb)
 
+        weight_norm_cb = meas.WeightNormMeasurement(
+            writer, model, freq)
+        callbacks.append(weight_norm_cb)
+
     grad_cb = None
     if xFLAGS.gradients is not None:
         train_batches, test_batches = get_batch_makers(
@@ -565,6 +569,9 @@ def main(argv):
     log.propagate = False
     fh = logging.FileHandler('{}/tensorflow.log'.format(xFLAGS.runlogdir))
     log.addHandler(fh)
+
+    sh = logging.StreamHandler(sys.stderr)
+    log.addHandler(sh)
 
     tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))
     # full_command = ' '.join(sys.argv)
