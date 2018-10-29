@@ -407,18 +407,19 @@ def get_dataset():
     if xFLAGS.projected_batch_size == ALL_SAMPLES:
         xFLAGS.set('projected_batch_size', num_samples)
 
-    def normalize(x):
+    def normalize(x, x_for_mean):
         '''Put the data between [xmin, xmax] in a data independent way.'''
-        xmin = -0.5
-        xmax = 0.5
-        return x / 255 * (xmax - xmin) + xmin
+        # TOO(guyga) change to compute the mean just on our subset of samples
+        # when --samples is specified
+        mean = np.mean(x_for_mean)
+        return (x - mean) / 255
 
     x_train = x_train.astype('float32')
     x_test = x_test.astype('float32')
 
     if xFLAGS.dataset != 'gaussians':
-        x_train = normalize(x_train)
-        x_test = normalize(x_test)
+        x_train = normalize(x_train, x_train)
+        x_test = normalize(x_test, x_train)
 
     if not is_regression():
         # Convert class vectors to binary class matrices.
