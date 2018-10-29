@@ -13,6 +13,7 @@ FLAGS = flags.FLAGS
 
 def _get_flags_dict():
     """Returns a dictionary of flag values."""
+    # TODO(guyga): random seed is not saved unless provided externally
     flags_dict = {}
     flags_dict_by_module = FLAGS.flags_by_module_dict()
     for module, val in flags_dict_by_module.items():
@@ -21,21 +22,24 @@ def _get_flags_dict():
     return flags_dict
 
 
-def save_run_flags(run_logdir):
+def save_run_flags(run_logdir, flags_dict=None):
     """Save the experiment's flags.
 
     Args:
         rundir: The run's log dir.
+        flags_dict: Dictionary containing flag values. If None,
+        uses the program flags.
     Returns:
         A dict containing the experiment's flags.
     """
-    flags_dict = _get_flags_dict()
+    if flags_dict is None:
+        flags_dict = _get_flags_dict()
     flags_as_json = json.dumps(flags_dict)
     with tf.gfile.GFile('{}/{}'.format(run_logdir, FLAGS_FILE), 'w') as f:
         f.write(flags_as_json)
 
 
-def load_run_flags(run_logdir, full_flags=False):
+def load_run_flags(run_logdir):
     """Load the experiment's flags.
 
     Args:
