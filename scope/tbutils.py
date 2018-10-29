@@ -103,9 +103,13 @@ class EventLoader:
         # This makes joining with other measurements easier, because all
         # measurements include a wall time, and we want to have a reference
         # wall time.
+        try:
+            step_scalars = self.event_mux.Scalars(run, STEP_TAG)
+        except KeyError:
+            raise ValueError('Run {} does not seem to contain any events'.format(
+                run))
         run_df = pd.DataFrame(
-            [[s.step, s.wall_time] for s
-                in self.event_mux.Scalars(run, STEP_TAG)],
+            [[s.step, s.wall_time] for s in step_scalars],
             columns=[STEP_TAG, WALL_TIME_TAG])
         run_df.set_index(STEP_TAG, inplace=True)
 
@@ -195,6 +199,14 @@ class ExperimentLoader:
     def runs(self):
         """Returns a list of loaded string run names."""
         return self.event_loader.runs()
+
+    def tags(self, run):
+        """Returns a list of string tag names for the given run.
+        
+        Args:
+            run: string run name.
+        """
+        return self.event_loader.tags(run)
 
     def events(self, runs=None, tags=None):
         """Returns a map of event data, mapping each run name to a DataFrame
