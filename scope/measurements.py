@@ -139,6 +139,7 @@ class BasicMetricsMeasurement(Measurement):
     def measure(self, logs=None):
         """A Keras callback that collects gradient mean and variance
         statistics."""
+        timer = tfutils.Timer()
         logs = logs or {}
         sess = K.get_session()
 
@@ -156,6 +157,8 @@ class BasicMetricsMeasurement(Measurement):
 
         if self.show_progress:
             self._print_simple_progress(logs)
+        tf.logging.info(
+            'Timing: Basic metrics: {} secs'.format(timer.secs))
 
     def _compute_metrics(self, batches, logs, prefix):
         means = tfutils.compute_sample_mean_tensor(
@@ -228,6 +231,7 @@ class GradientMeasurement(Measurement):
         tf.logging.info(
             '\nComputing gradients at epoch {} (batch {})...'.format(
                 self.epoch, self.batch))
+        timer = tfutils.Timer()
         tf.logging.info('Training gradients ...')
         train_stats, self.full_batch_g, self.full_batch_Hg = (
             self._compute_gradients(
@@ -240,6 +244,7 @@ class GradientMeasurement(Measurement):
         tf.logging.info('Test gradients ...')
         self._compute_gradients(
             self.test_batches, logs, prefix='val_', prnt=False)
+        tf.logging.info('Timing: Gradients: {} secs'.format(timer.secs))
 
     def _compute_gradients(self, batches, logs, prefix, prnt):
         # timer = tfutils.Timer()
@@ -585,9 +590,12 @@ class WeightNormMeasurement(Measurement):
 
     def measure(self, logs=None):
         """Measure weight norm by layer."""
+        timer = tfutils.Timer()
         norms = K.get_session().run(self.weight_norms)
         for name, norm in norms.items():
             self.save_summary('weight_norm/' + name, norm)
+        tf.logging.info(
+            'Timing: Weight norm: {} secs'.format(timer.secs))
 
 
 class ProjectedGradientDescent(keras.optimizers.SGD):
