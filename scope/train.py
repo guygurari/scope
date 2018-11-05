@@ -4,6 +4,10 @@
 to the gradient and the Hessian.
 """
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import os
 import sys
 import random
@@ -36,6 +40,7 @@ FLAGS = flags.FLAGS
 
 # def my_DEFINE_string(name, default, help):  # pylint: disable=invalid-name
 
+flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('logdir', 'logs', 'Base logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
 flags.DEFINE_boolean('augment', False, 'Use data augmentation')

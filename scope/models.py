@@ -1,5 +1,9 @@
 """A set of simple deep learning models."""
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import keras
 from keras.layers import Dense, Activation, Flatten, Dropout
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
