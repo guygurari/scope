@@ -7,15 +7,15 @@ import numpy as np
 # from scipy.sparse.linalg.eigen.arpack import ArpackError, \
 #     ArpackNoConvergence, ReentrancyLock
 from scipy._lib._util import _aligned_zeros
-from scipy._lib._threadsafety import ReentrancyLock
+# from scipy._lib._threadsafety import ReentrancyLock
 import scipy.sparse.linalg.eigen.arpack._arpack as _arpack
 
 _type_conv = {'f': 's', 'd': 'd', 'F': 'c', 'D': 'z'}
 
 # ARPACK is not threadsafe or reentrant (SAVE variables), so we need a
 # lock and a re-entering check.
-_ARPACK_LOCK = ReentrancyLock("Nested calls to eigs/eighs not allowed: "
-                              "ARPACK is not re-entrant")
+# _ARPACK_LOCK = ReentrancyLock("Nested calls to eigs/eighs not allowed: "
+#                               "ARPACK is not re-entrant")
 
 DSEUPD_ERRORS = {
     0: "Normal exit.",
@@ -273,11 +273,11 @@ def eigsh(n, dtype, matvec, k=6, which='LM', v0=None,
                                     M_matvec, Minv_matvec, sigma,
                                     ncv, v0, maxiter, which, tol)
 
-    with _ARPACK_LOCK:
-        while not params.converged:
-            params.iterate()
+    # with _ARPACK_LOCK:
+    while not params.converged:
+        params.iterate()
 
-        return params.extract(return_eigenvectors)
+    return params.extract(return_eigenvectors)
 
 
 class _ArpackParams(object):
