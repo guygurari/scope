@@ -21,6 +21,8 @@ import numpy as np
 import scipy
 
 import tensorflow as tf
+from tensorflow.python.client import device_lib
+
 import keras
 import keras.datasets
 from keras.preprocessing.image import ImageDataGenerator
@@ -544,10 +546,6 @@ def main(argv):
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
 
-    local_device_protos = device_lib.list_local_devices()
-    devices = [x.name for x in local_device_protos]
-    tf.logging.info("Available devices: {}".format(devices))
-
     x_train, y_train, x_test, y_test = get_dataset()
     model = get_model(x_train.shape[1:])
 
@@ -578,17 +576,20 @@ def main(argv):
     tf.gfile.MakeDirs(xFLAGS.runlogdir)
     log = logging.getLogger('tensorflow')
     log.propagate = False
-    fh = logging.FileHandler('{}/tensorflow.log'.format(xFLAGS.runlogdir))
-    log.addHandler(fh)
-
     sh = logging.StreamHandler(sys.stderr)
     log.addHandler(sh)
+    fh = logging.FileHandler('{}/tensorflow.log'.format(xFLAGS.runlogdir))
+    log.addHandler(fh)
 
     tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))
     # full_command = ' '.join(sys.argv)
     # tf.logging.info('Full command:', full_command)
     tf.logging.info('Log dir: {}'.format(xFLAGS.runlogdir))
     tf.logging.info('Run name: {}'.format(run_name()))
+
+    local_device_protos = device_lib.list_local_devices()
+    devices = [x.name for x in local_device_protos]
+    tf.logging.info("Available devices: {}".format(devices))
 
     tbutils.save_run_flags(xFLAGS.runlogdir)
 
