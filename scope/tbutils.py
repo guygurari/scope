@@ -17,7 +17,7 @@ FLAGS = flags.FLAGS
 
 def _get_flags_dict():
     """Returns a dictionary of flag values."""
-    # TODO(guyga): random seed is not saved unless provided externally
+    # TODO: random seed is not saved unless provided externally
     flags_dict = {}
     flags_dict_by_module = FLAGS.flags_by_module_dict()
     for module, val in flags_dict_by_module.items():

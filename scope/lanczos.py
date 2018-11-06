@@ -3,6 +3,10 @@ Lanczos algorithm as implemented in SciPy/ARPACK, but without the need
 to pass the actual matrix. Only the product x |-> Ax is passed.
 '''
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 import numpy as np
 # from scipy.sparse.linalg.eigen.arpack import ArpackError, \
 #     ArpackNoConvergence, ReentrancyLock

@@ -799,5 +799,9 @@ class TestMeasurements(unittest.TestCase):
         self.assertFalse(np.allclose(hess, 2 * actual_hess))
 
 
+def main(_):
+  unittest.main()
+
+
 if __name__ == '__main__':
-    unittest.main()
+  tf.app.run(main)

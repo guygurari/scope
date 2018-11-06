@@ -44,7 +44,7 @@ flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('logdir', 'logs', 'Base logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
 flags.DEFINE_boolean('augment', False, 'Use data augmentation')
-flags.DEFINE_string('dataset', None,
+flags.DEFINE_string('dataset', 'mnist',
                     'Dataset: mnist, mnist_eo, cifar10, sine, or gaussians')
 flags.DEFINE_float('image_resize', 1, 'Resize images by given factor')
 flags.DEFINE_boolean('dropout', False, 'Use dropout')
@@ -131,6 +131,7 @@ flags.DEFINE_boolean('show_progress_bar', False,
                      'Show progress bar during training')
 flags.DEFINE_integer('gpu', 0, 'Which GPU to use')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
+flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
 
 
 class ExtendedFlags:
@@ -414,7 +415,7 @@ def get_dataset():
 
     def normalize(x, x_for_mean):
         '''Put the data between [xmin, xmax] in a data independent way.'''
-        # TOO(guyga) change to compute the mean just on our subset of samples
+        # TODO change to compute the mean just on our subset of samples
         # when --samples is specified
         mean = np.mean(x_for_mean)
         return (x - mean) / 255
@@ -535,13 +536,17 @@ def save_model(model):
 
 
 def main(argv):
-    del argv  # unusd
+    del argv  # unused
+    if xFLAGS.nothing:
+      sys.exit(0)
     init_flags()
     init_randomness()
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
 
-    init_randomness()
+    local_device_protos = device_lib.list_local_devices()
+    devices = [x.name for x in local_device_protos]
+    tf.logging.info("Available devices: {}".format(devices))
 
     x_train, y_train, x_test, y_test = get_dataset()
     model = get_model(x_train.shape[1:])
@@ -668,5 +673,4 @@ def main(argv):
 
 
 if __name__ == '__main__':
-    flags.mark_flag_as_required('dataset')
-    app.run(main)
+    tf.app.run(main)

@@ -36,7 +36,6 @@ class MeasurementsWriter:
     """Save scalar and tensor summaries."""
     def __init__(self, args, log_dir):
         """args = argument dictionary to log along with logs"""
-        super().__init__()
         self.args = args
         self.summary_writer = tf.summary.FileWriter(log_dir)
 
@@ -65,7 +64,7 @@ class Measurement(keras.callbacks.Callback):
     given by MeasurementFrequency."""
     def __init__(self, freq, writer):
         """freq is MeasurementFrequency"""
-        super().__init__()
+        super(Measurement, self).__init__()
         self.freq = freq
         self.writer = writer
         self.step = 0
@@ -120,7 +119,7 @@ class Measurement(keras.callbacks.Callback):
 class BasicMetricsMeasurement(Measurement):
     def __init__(self, writer, model, freq,
                  train_batches, test_batches, show_progress=False):
-        super().__init__(freq, writer)
+        super(BasicMetricsMeasurement, self).__init__(freq, writer)
         self.timer = Timer()
         self.train_batches = train_batches
         self.test_batches = test_batches
@@ -194,7 +193,7 @@ class GradientMeasurement(Measurement):
     def __init__(self, writer, model, freq,
                  train_batches, test_batches, random_overlap=False):
         """freq is MeasurementFrequency."""
-        super().__init__(freq, writer)
+        super(GradientMeasurement, self).__init__(freq, writer)
         self.model = model
         self.train_batches = train_batches
         self.test_batches = test_batches
@@ -348,7 +347,7 @@ class LanczosHessianMeasurement(Measurement):
                  x_train, y_train, batch_size,
                  lr, log_dir, grad_measurement=None):
         """grad_measurement is GradientMeasurement"""
-        super().__init__(freq, writer)
+        super(LanczosHessianMeasurement, self).__init__(freq, writer)
         self.model = model
         self.num_evs = num_evs
         self.lr = lr
@@ -438,7 +437,7 @@ class FullHessianMeasurement(Measurement):
         0 for none.
         :param grad_measurement: A GradientMeasurement object
         """
-        super().__init__(freq, writer)
+        super(FullHessianMeasurement, self).__init__(freq, writer)
         self.model = model
         self.batches = train_batches
         self.log_dir = log_dir
@@ -540,7 +539,7 @@ class GaussiansMeasurement(Measurement):
                  x_train, y_train,
                  grad_measurement=None):
         """grad_measurement is GradientMeasurement"""
-        super().__init__(freq, writer)
+        super(GaussiansMeasurement, self).__init__(freq, writer)
         self.model = model
         self.x_train = x_train
         self.grad_measurement = grad_measurement
@@ -588,7 +587,7 @@ class WeightNormMeasurement(Measurement):
         """
         :param freq: MeasurementFrequency
         """
-        super().__init__(freq, writer)
+        super(WeightNormMeasurement, self).__init__(freq, writer)
         self.model = model
         self.weight_norms = {w.name: tf.norm(w) for w in model.weights}
 
