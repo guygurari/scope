@@ -11,6 +11,10 @@ Options:
   --t2-step-size N      How many steps to skip when advancing t2 [Default: 10]
 """
 
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
 from glob import glob
 import re
 import numpy as np
