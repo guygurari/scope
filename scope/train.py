@@ -417,8 +417,6 @@ def get_dataset():
 
     def normalize(x, x_for_mean):
         '''Put the data between [xmin, xmax] in a data independent way.'''
-        # TODO change to compute the mean just on our subset of samples
-        # when --samples is specified
         mean = np.mean(x_for_mean)
         return (x - mean) / 255
 
