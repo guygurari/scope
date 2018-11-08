@@ -21,6 +21,13 @@ flags.DEFINE_string('path', '/tmp/datasets',
 flags.DEFINE_string('cache_path', '/tmp/datasets.cache',
                     'Temporary path into which to download the data')
 
+_BASE_FILENAMES = {
+    'keras': {
+        'mnist': 'mnist.npz',
+        'cifar10': 'cifar-10-python.tar.gz',
+    }
+}
+
 def _get_paths(framework, dataset):
   """Return the relevant paths for handling the given dataset.
 
@@ -38,14 +45,28 @@ def _get_paths(framework, dataset):
     persist_path: The dataset path in persistent storage.
     cache_path: The local dataset path used for caching.
   """
-  if framework == 'keras' and dataset == 'mnist':
-    base_file = 'mnist.npz'
-    persist_dir = FLAGS.path + '/keras/mnist'
+  try:
+    base_file = _BASE_FILENAMES[framework][dataset]
+    persist_dir = '{}/{}/{}'.format(FLAGS.path, framework, dataset)
     persist_path = persist_dir + '/' + base_file
     cache_path = '/' + FLAGS.cache_path + '/' + base_file
     return (persist_path, persist_dir, cache_path)
-  else:
+  except MissingKeyException:
     raise ValueError('Unsupported dataset')
+
+
+def download_keras_cifar10():
+  """Download CIFAR10 dataset as packaged by Keras.
+
+  Download the dataset and save it under --path.
+  """
+  (persist_path, persist_dir, cache_path) = _get_paths('keras', 'cifar10')
+  if tf.gfile.Exists(persist_path):
+    return
+  tf.gfile.MakeDirs(persist_dir)
+  keras.datasets.mnist.load_data(cache_path)
+  tf.gfile.Copy(cache_path, persist_path)
+  tf.gfile.Remove(cache_path)
 
 
 def download_keras_mnist():
