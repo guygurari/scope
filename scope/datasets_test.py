@@ -31,6 +31,10 @@ class TestDatasets(unittest.TestCase):
       scope.datasets.load_keras_mnist()
       tf.logging.set_verbosity(tf.logging.INFO)
 
+  def test_keras_cifar10(self):
+    scope.datasets.download_keras_cifar10()
+
+
 def main(_):
   unittest.main()
 
