@@ -43,6 +43,7 @@ def add_dense_layers(args, model, widths, input_shape=None):
       model.add(_dense_layer(args, width))
     except ValueError:
       # If it's the first layer we need to specify the input shape
+      print('FIRST LAYER')
       model.add(_dense_layer(args, width, input_shape=input_shape))
     if args.batch_norm:
       model.add(BatchNormalization())
@@ -66,21 +67,19 @@ def regression_fc_model(args, output_dim):
 def classification_fc_model(args, input_shape, num_classes):
   """Fully-connected classification"""
   model = keras.models.Sequential()
+  model.add(keras.layers.InputLayer(input_shape=input_shape))
 
-  try:
-    model.add(Flatten(input_shape=input_shape))
-  except ValueError:
-    # No need to flatten
-    pass
+  if len(input_shape) >  1:
+    model.add(Flatten())
 
-  add_dense_layers(args, model, args.fc_widths, input_shape=input_shape)
+  add_dense_layers(args, model, args.fc_widths)
 
   try:
     logits = _dense_layer(args, num_classes, name='logits')
     model.add(logits)
   except ValueError:
     logits = _dense_layer(
-        args, num_classes, name='logits', input_shape=input_shape)
+        args, num_classes, name='logits')
     model.add(logits)
 
   model.add(Activation('softmax', name='softmax'))

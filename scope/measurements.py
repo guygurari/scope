@@ -151,8 +151,7 @@ class BasicMetricsMeasurement(Measurement):
 
   def measure(self, logs=None):
     """A Keras callback that collects gradient mean and variance
-
-        statistics.
+    statistics.
     """
     timer = tfutils.Timer()
     logs = logs or {}
@@ -415,6 +414,7 @@ class LanczosHessianMeasurement(Measurement):
       tf.logging.info('---------------------------------------')
 
       # self.save_summary('Hvec_g_overlaps', overlaps)
+      self.save_summary('hessian_gradient/explained_gradient', explained)
       _save_array(self.detailed_log_dir, self.step, 'g', g)
       _save_array(self.detailed_log_dir, self.step, 'Hg',
                   self.grad_measurement.full_batch_Hg)

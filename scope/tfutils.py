@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import numpy as np
 import tensorflow as tf
 import keras.backend as K
@@ -719,7 +720,8 @@ class KerasHessianSpectrum:
 
   def _compute_Hv(self, v, show_progress):
     if show_progress:
-      print('.', end='', flush=True)
+      print('.', end='')
+      sys.stdout.flush()
     self.lanczos_iterations += 1
     return compute_sample_mean_tensor(self.model, self.train_batches, self.Hv,
                                       {self.v: v})

@@ -43,8 +43,6 @@ FLAGS = flags.FLAGS
 
 # def my_DEFINE_string(name, default, help):  # pylint: disable=invalid-name
 
-flags.DEFINE_boolean(
-    'tf', False, 'Use TensorFlow training loop (uses Keras loop by default)')
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('logdir', 'logs', 'Base logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
@@ -136,6 +134,8 @@ flags.DEFINE_boolean('show_progress_bar', False,
 flags.DEFINE_integer('gpu', 0, 'Which GPU to use')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
+flags.DEFINE_boolean('keras_training_loop', False,
+                     'Use Keras training loop (instead of TF training loop)')
 
 
 class ExtendedFlags:
@@ -638,8 +638,6 @@ def main(argv):
   keras_opt, tf_opt = get_optimizer()
 
   init_logging()
-  tf.logging.info('Model summary:')
-  tf.logging.info(model.summary())
 
   tbutils.save_run_flags(xFLAGS.runlogdir)
 
@@ -652,6 +650,8 @@ def main(argv):
         optimizer=keras_opt,
         metrics=['accuracy'])
 
+  tf.logging.info('Model summary:')
+  tf.logging.info(model.summary())
   tf.logging.info('Total model parameters: {}'.format(
       tfutils.total_num_weights(model)))
 
@@ -664,9 +664,7 @@ def main(argv):
 
   tf.logging.info('Training...')
 
-  if xFLAGS.tf:
-    tf_train(x_train, y_train, x_test, y_test, model, tf_opt, writer, callbacks)
-  else:
+  if xFLAGS.keras_training_loop:
     model.fit(
         x_train,
         y_train,
@@ -676,6 +674,8 @@ def main(argv):
         shuffle=True,
         callbacks=callbacks,
         verbose=xFLAGS.show_progress_bar)
+  else:
+    tf_train(x_train, y_train, x_test, y_test, model, tf_opt, writer, callbacks)
 
   if xFLAGS.summaries:
     writer.close()
