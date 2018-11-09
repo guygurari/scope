@@ -528,22 +528,7 @@ def save_model(model):
     tf.logging.info('Saved trained model at {} '.format(model_path))
 
 
-def main(argv):
-    del argv  # unused
-    if xFLAGS.nothing:
-      sys.exit(0)
-    init_flags()
-    init_randomness()
-
-    os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
-
-    x_train, y_train, x_test, y_test = get_dataset()
-    model = get_model(x_train.shape[1:])
-
-    tf.logging.info('Model summary:')
-    tf.logging.info(model.summary())
-
-    # initiate optimizer
+def get_optimizer():
     if xFLAGS.optimizer_name == 'sgd':
         opt = keras.optimizers.SGD(lr=xFLAGS.lr)
     elif xFLAGS.optimizer_name == 'adam':
@@ -560,27 +545,46 @@ def main(argv):
     else:
         raise RuntimeError('Unknown optimizer: {}'.format(
             xFLAGS.optimizer_name))
+    return opt
 
-    # Setup logging
+
+def init_logging():
     xFLAGS.set('runlogdir',
                '{}/{}'.format(xFLAGS.logdir, run_name()))
     tf.gfile.MakeDirs(xFLAGS.runlogdir)
     log = logging.getLogger('tensorflow')
     log.propagate = False
-    sh = logging.StreamHandler(sys.stderr)
+    sh = logging.StreamHandler(sys.stdout)
     log.addHandler(sh)
     fh = logging.FileHandler('{}/tensorflow.log'.format(xFLAGS.runlogdir))
     log.addHandler(fh)
 
     tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))
-    # full_command = ' '.join(sys.argv)
-    # tf.logging.info('Full command:', full_command)
     tf.logging.info('Log dir: {}'.format(xFLAGS.runlogdir))
     tf.logging.info('Run name: {}'.format(run_name()))
 
     local_device_protos = device_lib.list_local_devices()
     devices = [x.name for x in local_device_protos]
     tf.logging.info("Available devices: {}".format(devices))
+
+
+def main(argv):
+    del argv  # unused
+    if xFLAGS.nothing:
+      sys.exit(0)
+    init_flags()
+    init_randomness()
+
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
+
+    x_train, y_train, x_test, y_test = get_dataset()
+    model = get_model(x_train.shape[1:])
+
+    opt = get_optimizer()
+
+    init_logging()
+    tf.logging.info('Model summary:')
+    tf.logging.info(model.summary())
 
     tbutils.save_run_flags(xFLAGS.runlogdir)
 
