@@ -89,8 +89,8 @@ def classification_fc_model(args, input_shape, num_classes):
 def classification_convnet_model(args, input_shape, num_classes):
   """Convnet classification"""
   model = keras.models.Sequential()
-  model.add(
-      _conv2d_layer(args, 32, (3, 3), padding='same', input_shape=input_shape))
+  model.add(keras.layers.InputLayer(input_shape=input_shape))
+  model.add(_conv2d_layer(args, 32, (3, 3), padding='same'))
   if args.batch_norm:
     # The default Conv2D data format is 'channels_last' and the
     # default BatchNormalization axes is -1.
@@ -152,8 +152,9 @@ def classification_convnet_model(args, input_shape, num_classes):
 def classification_small_convnet_model(args, input_shape, num_classes):
   """Convnet classification"""
   model = keras.models.Sequential()
+  model.add(keras.layers.InputLayer(input_shape=input_shape))
   model.add(
-      _conv2d_layer(args, 32, (3, 3), padding='same', input_shape=input_shape))
+      _conv2d_layer(args, 32, (3, 3), padding='same'))
   if args.batch_norm:
     # The default Conv2D data format is 'channels_last' and the
     # default BatchNormalization axes is -1.
