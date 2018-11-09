@@ -24,15 +24,15 @@ import tensorflow as tf
 from tensorflow.python.client import device_lib
 
 import keras
-import keras.datasets
 import keras.backend as K
 from keras.preprocessing.image import ImageDataGenerator
 import colored_traceback
 
-import scope.tfutils as tfutils
-import scope.tbutils as tbutils
+import scope.datasets
 import scope.measurements as meas
 import scope.models as models
+import scope.tbutils as tbutils
+import scope.tfutils as tfutils
 
 colored_traceback.add_hook()
 
@@ -313,6 +313,9 @@ def get_dataset():
     Returns:
         x_train, y_train, x_test, y_test
     """
+  if not scope.datasets.datasets_exist():
+    raise IOError("Datasets have not been downloaded. "
+                  "Run scope/datasets.py --download")
   num_classes = None
   output_dim = None
 
@@ -324,7 +327,7 @@ def get_dataset():
     output_dim = num_classes = 10
 
     (x_train, y_train), (x_test, y_test) = preprocess_images(
-        keras.datasets.mnist.load_data)
+        scope.datasets.load_mnist)
 
     x_train = x_train.reshape(add_channel_dim(x_train.shape))
     x_test = x_test.reshape(add_channel_dim(x_test.shape))
@@ -332,7 +335,7 @@ def get_dataset():
     output_dim = num_classes = 2
 
     (x_train, y_train), (x_test, y_test) = preprocess_images(
-        keras.datasets.mnist.load_data)
+        scope.datasets.load_mnist)
 
     y_train = y_train % 2
     y_test = y_test % 2
@@ -350,7 +353,7 @@ def get_dataset():
   elif xFLAGS.dataset == 'cifar10':
     num_classes = 10
     (x_train, y_train), (x_test, y_test) = preprocess_images(
-        keras.datasets.cifar10.load_data)
+        scope.datasets.load_cifar10)
   elif xFLAGS.dataset == 'gaussians':
     # Gaussians centered at random unit vectors with stddev sigma
     if xFLAGS.samples != ALL_SAMPLES:

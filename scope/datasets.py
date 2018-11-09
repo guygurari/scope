@@ -44,6 +44,11 @@ flags.DEFINE_boolean('download', False,
                      'Download the datasets and put in persistent storage.')
 
 
+def datasets_exist():
+  """Check if datasets seem to exist."""
+  return tf.gfile.Exists(FLAGS.datasets_path)
+
+
 def download_datasets():
   """Download all datasets and copy them to persistent storage."""
   tf.logging.info('Downloading datasets')
