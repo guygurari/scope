@@ -16,25 +16,39 @@ precision = 5
 
 class TestDatasets(unittest.TestCase):
 
-  def test_keras_mnist(self):
-    scope.datasets.delete_keras_mnist()
-    scope.datasets.download_keras_mnist()
-    ((x_train, y_train), (x_test, y_test)) = scope.datasets.load_keras_mnist()
-    ((x_train_ex, y_train_ex), (x_test_ex,
-                                y_test_ex)) = keras.datasets.mnist.load_data()
+  def _load_and_compare(self, expected_loader, actual_loader):
+    ((x_train_ex, y_train_ex),
+     (x_test_ex, y_test_ex)) = expected_loader()
+    ((x_train, y_train), (x_test, y_test)) = actual_loader()
     self.assertTrue(np.all(x_train == x_train_ex))
     self.assertTrue(np.all(y_train == y_train_ex))
     self.assertTrue(np.all(x_test == x_test_ex))
     self.assertTrue(np.all(y_test == y_test_ex))
 
-    scope.datasets.delete_keras_mnist()
-    with self.assertRaises(ValueError):
-      tf.logging.set_verbosity(tf.logging.FATAL)
-      scope.datasets.load_keras_mnist()
-      tf.logging.set_verbosity(tf.logging.INFO)
+  def test_mnist(self):
+    scope.datasets.download_datasets()
+    self._load_and_compare(
+        keras.datasets.mnist.load_data, scope.datasets.load_mnist)
 
-  def test_keras_cifar10(self):
-    scope.datasets.download_keras_cifar10()
+  def test_cifar10(self):
+    scope.datasets.download_datasets()
+    self._load_and_compare(
+        keras.datasets.cifar10.load_data, scope.datasets.load_cifar10)
+
+  def test_cifar100(self):
+    scope.datasets.download_datasets()
+    self._load_and_compare(
+        keras.datasets.cifar100.load_data, scope.datasets.load_cifar100)
+
+  def test_fashion_mnist(self):
+    scope.datasets.download_datasets()
+    self._load_and_compare(
+        keras.datasets.fashion_mnist.load_data, scope.datasets.load_fashion_mnist)
+
+  def test_boston_housing(self):
+    scope.datasets.download_datasets()
+    self._load_and_compare(
+        keras.datasets.boston_housing.load_data, scope.datasets.load_boston_housing)
 
 
 def main(_):
