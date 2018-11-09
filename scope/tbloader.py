@@ -16,6 +16,6 @@ events = el.events(el.runs,
                    ['epoch', 'loss', 'acc', 'full_hessian/eigenvalues'])
 
 for run, data in events.items():
-    print(run)
-    print(data)
-    print('')
+  print(run)
+  print(data)
+  print('')

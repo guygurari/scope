@@ -15,9 +15,11 @@ import keras
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string('name', 'mnist', 'Dataset name to download')
-flags.DEFINE_string('framework', 'keras', 'The framework that supports the dataset')
-flags.DEFINE_string('path', '/tmp/datasets',
-                    'Base path under which to store the data in persistent storage')
+flags.DEFINE_string('framework', 'keras',
+                    'The framework that supports the dataset')
+flags.DEFINE_string(
+    'path', '/tmp/datasets',
+    'Base path under which to store the data in persistent storage')
 flags.DEFINE_string('cache_path', '/tmp/datasets.cache',
                     'Temporary path into which to download the data')
 
@@ -27,6 +29,7 @@ _BASE_FILENAMES = {
         'cifar10': 'cifar-10-python.tar.gz',
     }
 }
+
 
 def _get_paths(framework, dataset):
   """Return the relevant paths for handling the given dataset.
@@ -118,6 +121,7 @@ def main(argv):
   download_keras_mnist()
   ((x_t, y_t), (x_v, y_v)) = load_keras_mnist()
   print(y_t)
+
 
 if __name__ == '__main__':
   app.run(main)

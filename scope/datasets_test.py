@@ -15,11 +15,13 @@ precision = 5
 
 
 class TestDatasets(unittest.TestCase):
+
   def test_keras_mnist(self):
     scope.datasets.delete_keras_mnist()
     scope.datasets.download_keras_mnist()
     ((x_train, y_train), (x_test, y_test)) = scope.datasets.load_keras_mnist()
-    ((x_train_ex, y_train_ex), (x_test_ex, y_test_ex)) = keras.datasets.mnist.load_data()
+    ((x_train_ex, y_train_ex), (x_test_ex,
+                                y_test_ex)) = keras.datasets.mnist.load_data()
     self.assertTrue(np.all(x_train == x_train_ex))
     self.assertTrue(np.all(y_train == y_train_ex))
     self.assertTrue(np.all(x_test == x_test_ex))
