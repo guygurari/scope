@@ -25,6 +25,7 @@ from tensorflow.python.client import device_lib
 
 import keras
 import keras.datasets
+import keras.backend as K
 from keras.preprocessing.image import ImageDataGenerator
 import colored_traceback
 
@@ -42,6 +43,7 @@ FLAGS = flags.FLAGS
 
 # def my_DEFINE_string(name, default, help):  # pylint: disable=invalid-name
 
+flags.DEFINE_boolean('tf', False, 'Use TensorFlow training loop (uses Keras loop by default)')
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('logdir', 'logs', 'Base logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
@@ -55,13 +57,12 @@ flags.DEFINE_float('lr_decay', 1,
                    'Multiply the learning rate by this after every epoch ')
 
 flags.DEFINE_boolean('adam', False, 'Use Adam optimizer')
-flags.DEFINE_boolean('rmsprop', False, 'Use RMSProp optimizer')
-flags.DEFINE_boolean('projected_gd', False, 'Use Projected Gradient Descent')
-flags.DEFINE_integer('projected_num_evs', 10,
-                     'How many Hessian eigenvalues to measure for PGD')
-flags.DEFINE_integer('projected_batch_size', 2048,
-                     'Batch size when computing Hessian spectrum for PGD '
-                     '(-1 for all)')
+# flags.DEFINE_boolean('projected_gd', False, 'Use Projected Gradient Descent')
+# flags.DEFINE_integer('projected_num_evs', 10,
+#                      'How many Hessian eigenvalues to measure for PGD')
+# flags.DEFINE_integer('projected_batch_size', 2048,
+#                      'Batch size when computing Hessian spectrum for PGD '
+#                      '(-1 for all)')
 flags.DEFINE_boolean('dense', True,
                      'Include a big fully-connected layer in the CNN')
 flags.DEFINE_integer('overparam', 0,
@@ -269,12 +270,8 @@ def init_flags():
             tf.logging.error('Must specify --gradients with --full-hessian')
             sys.exit(1)
 
-    if xFLAGS.rmsprop:
-        xFLAGS.set('optimizer_name', 'rmsprop')
-    elif xFLAGS.adam:
+    if xFLAGS.adam:
         xFLAGS.set('optimizer_name', 'adam')
-    elif xFLAGS.projected_gd:
-        xFLAGS.set('optimizer_name', 'projected-gd')
     else:
         xFLAGS.set('optimizer_name', 'sgd')
 
@@ -405,8 +402,8 @@ def get_dataset():
         xFLAGS.set('hessian_batch_size', num_samples)
     if xFLAGS.full_hessian_batch_size == ALL_SAMPLES:
         xFLAGS.set('full_hessian_batch_size', num_samples)
-    if xFLAGS.projected_batch_size == ALL_SAMPLES:
-        xFLAGS.set('projected_batch_size', num_samples)
+    # if xFLAGS.projected_batch_size == ALL_SAMPLES:
+    #     xFLAGS.set('projected_batch_size', num_samples)
 
     def normalize(x, x_for_mean):
         '''Put the data between [xmin, xmax] in a data independent way.'''
@@ -530,22 +527,21 @@ def save_model(model):
 
 def get_optimizer():
     if xFLAGS.optimizer_name == 'sgd':
-        opt = keras.optimizers.SGD(lr=xFLAGS.lr)
+        keras_opt = keras.optimizers.SGD(lr=xFLAGS.lr)
+        tf_opt = tf.train.GradientDescentOptimizer(learning_rate=xFLAGS.lr)
     elif xFLAGS.optimizer_name == 'adam':
-        opt = keras.optimizers.adam()
-    elif xFLAGS.optimizer_name == 'rmsprop':
-        opt = keras.optimizers.rmsprop(lr=xFLAGS.lr, decay=1e-6)
-        # opt = keras.optimizers.rmsprop(lr=0.0001, decay=1e-6)
-    elif xFLAGS.optimizer_name == 'projected-gd':
-        hessian_spec = tfutils.KerasHessianSpectrum(
-            model, x_train, y_train, xFLAGS.projected_batch_size)
-        opt = meas.ProjectedGradientDescent(
-            xFLAGS.lr, model, x_train, y_train,
-            hessian_spec, xFLAGS.projected_num_evs)
+        keras_opt = keras.optimizers.adam()
+        tf_opt = tf.train.AdamOptimizer(learning_rate=xFLAGS.lr)
+    # elif xFLAGS.optimizer_name == 'projected-gd':
+    #     hessian_spec = tfutils.KerasHessianSpectrum(
+    #         model, x_train, y_train, xFLAGS.projected_batch_size)
+    #     keras_opt = meas.ProjectedGradientDescent(
+    #         xFLAGS.lr, model, x_train, y_train,
+    #         hessian_spec, xFLAGS.projected_num_evs)
     else:
         raise RuntimeError('Unknown optimizer: {}'.format(
             xFLAGS.optimizer_name))
-    return opt
+    return keras_opt, tf_opt
 
 
 def init_logging():
@@ -568,6 +564,59 @@ def init_logging():
     tf.logging.info("Available devices: {}".format(devices))
 
 
+def tf_train(x_train, y_train, x_test, y_test, model,
+             tf_opt, writer, callbacks):
+    """TensorFlow training loop."""
+    train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    train_ds = train_ds.shuffle(len(x_train))
+    train_ds = train_ds.batch(xFLAGS.batch_size)
+
+    iterator = tf.data.Iterator.from_structure(
+        train_ds.output_types, train_ds.output_shapes)
+    next_batch = iterator.get_next()
+    iterator_init_op = iterator.make_initializer(train_ds)
+
+    train_step = tf_opt.minimize(model.total_loss)
+
+    # TODO using the Keras session because it was created during model.compile()
+    sess = K.get_session()
+    # sess = tf.Session()
+    # K.set_session(sess)
+
+    sess.run(tf.global_variables_initializer())
+    step = 0
+
+    # TODO handle training/test thing
+    # TODO handle Keras internal variable updates
+
+    for callback in callbacks:
+      callback.set_model(model)
+
+    for epoch in range(FLAGS.epochs):
+        print('epoch =', epoch)
+        for callback in callbacks:
+            callback.on_epoch_begin(epoch)
+
+        sess.run(iterator_init_op)
+        try:
+            while True:
+                for callback in callbacks:
+                    callback.on_batch_begin(step)
+
+                (x_batch, y_batch) = sess.run(next_batch)
+                feed = tfutils.keras_feed_dict(model, x_batch, y_batch)
+                sess.run(train_step, feed_dict=feed)
+
+                for callback in callbacks:
+                    callback.on_batch_end(step)
+                step += 1
+        except tf.errors.OutOfRangeError:
+            pass
+
+        for callback in callbacks:
+            callback.on_epoch_end(epoch)
+
+
 def main(argv):
     del argv  # unused
     if xFLAGS.nothing:
@@ -580,7 +629,7 @@ def main(argv):
     x_train, y_train, x_test, y_test = get_dataset()
     model = get_model(x_train.shape[1:])
 
-    opt = get_optimizer()
+    keras_opt, tf_opt = get_optimizer()
 
     init_logging()
     tf.logging.info('Model summary:')
@@ -590,10 +639,10 @@ def main(argv):
 
     if is_regression():
         model.compile(loss='mean_squared_error',
-                      optimizer=opt, metrics=['mae'])
+                      optimizer=keras_opt, metrics=['mae'])
     else:
         model.compile(loss='categorical_crossentropy',
-                      optimizer=opt, metrics=['accuracy'])
+                      optimizer=keras_opt, metrics=['accuracy'])
 
     tf.logging.info('Total model parameters: {}'.format(
         tfutils.total_num_weights(model)))
@@ -611,13 +660,17 @@ def main(argv):
 
     tf.logging.info('Training...')
 
-    model.fit(x_train, y_train,
-              batch_size=xFLAGS.batch_size,
-              epochs=xFLAGS.epochs,
-              validation_data=(x_test, y_test),
-              shuffle=True,
-              callbacks=callbacks,
-              verbose=xFLAGS.show_progress_bar)
+    if xFLAGS.tf:
+       tf_train(x_train, y_train, x_test, y_test, model,
+                tf_opt, writer, callbacks)
+    else:
+        model.fit(x_train, y_train,
+                batch_size=xFLAGS.batch_size,
+                epochs=xFLAGS.epochs,
+                validation_data=(x_test, y_test),
+                shuffle=True,
+                callbacks=callbacks,
+                verbose=xFLAGS.show_progress_bar)
 
     if xFLAGS.summaries:
         writer.close()
