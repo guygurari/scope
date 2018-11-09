@@ -586,9 +586,6 @@ def tf_train(x_train, y_train, x_test, y_test, model,
     sess.run(tf.global_variables_initializer())
     step = 0
 
-    # TODO handle training/test thing
-    # TODO handle Keras internal variable updates
-
     for callback in callbacks:
       callback.set_model(model)
 
@@ -604,8 +601,10 @@ def tf_train(x_train, y_train, x_test, y_test, model,
                     callback.on_batch_begin(step)
 
                 (x_batch, y_batch) = sess.run(next_batch)
-                feed = tfutils.keras_feed_dict(model, x_batch, y_batch)
-                sess.run(train_step, feed_dict=feed)
+                feed = tfutils.keras_feed_dict(
+                    model, x_batch, y_batch,
+                    learning_phase=tfutils.KERAS_LEARNING_PHASE_TRAIN)
+                sess.run([train_step, model.updates], feed_dict=feed)
 
                 for callback in callbacks:
                     callback.on_batch_end(step)
