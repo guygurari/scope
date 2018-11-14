@@ -560,7 +560,10 @@ def init_logging():
   log.propagate = False
   sh = logging.StreamHandler(sys.stdout)
   log.addHandler(sh)
-  fh = logging.FileHandler('{}/tensorflow.log'.format(xFLAGS.runlogdir))
+
+  # Handle writing to cloud storage
+  fh = logging.StreamHandler(
+      tf.gfile.GFile('{}/tensorflow.log'.format(xFLAGS.runlogdir), 'w'))
   log.addHandler(fh)
 
   tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))
@@ -598,7 +601,7 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, writer,
     callback.set_model(model)
 
   for epoch in range(FLAGS.epochs):
-    print('epoch =', epoch)
+    tf.logging.info('epoch = {}'.format(epoch))
     for callback in callbacks:
       callback.on_epoch_begin(epoch)
 
@@ -654,7 +657,7 @@ def main(argv):
         metrics=['accuracy'])
 
   tf.logging.info('Model summary:')
-  tf.logging.info(model.summary())
+  tf.logging.info(model.summary(print_fn=tf.logging.info))
   tf.logging.info('Total model parameters: {}'.format(
       tfutils.total_num_weights(model)))
 
