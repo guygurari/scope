@@ -46,7 +46,7 @@ FLAGS = flags.FLAGS
 # def my_DEFINE_string(name, default, help):  # pylint: disable=invalid-name
 
 flags.DEFINE_string('job-dir', '', 'Ignored')
-flags.DEFINE_string('logdir', 'logs', 'Base logs directory')
+flags.DEFINE_string('summary_dir', 'logs', 'Base summary and logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
 flags.DEFINE_string('dataset', 'mnist',
                     'Dataset: mnist, mnist_eo, cifar10, sine, or gaussians')
@@ -563,7 +563,7 @@ def get_optimizer():
 
 
 def init_logging():
-  xFLAGS.set('runlogdir', '{}/{}'.format(xFLAGS.logdir, run_name()))
+  xFLAGS.set('runlogdir', '{}/{}'.format(xFLAGS.summary_dir, run_name()))
   tf.gfile.MakeDirs(xFLAGS.runlogdir)
   log = logging.getLogger('tensorflow')
   log.propagate = False

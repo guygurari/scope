@@ -36,8 +36,8 @@ import tensorflow as tf
 FLAGS = flags.FLAGS
 
 flags.DEFINE_string(
-    'datasets_path', '/tmp/datasets',
-    'Base path under which to store the data in persistent storage')
+    'datasets_dir', '/tmp/datasets',
+    'Base dir under which to store the data in persistent storage')
 # flags.DEFINE_string('cache_path', '/tmp/datasets.cache',
 #                     'Temporary path into which to download the data')
 flags.DEFINE_boolean('download', False,
@@ -46,7 +46,7 @@ flags.DEFINE_boolean('download', False,
 
 def datasets_exist():
   """Check if datasets seem to exist."""
-  return tf.gfile.Exists(FLAGS.datasets_path)
+  return tf.gfile.Exists(FLAGS.datasets_dir)
 
 
 def download_datasets():
@@ -58,7 +58,7 @@ def download_datasets():
   keras.datasets.fashion_mnist.load_data()
   keras.datasets.boston_housing.load_data()
 
-  tf.gfile.MakeDirs(FLAGS.datasets_path)
+  tf.gfile.MakeDirs(FLAGS.datasets_dir)
   local_dataset_dir = os.path.join(os.environ['HOME'], '.keras/datasets')
 
   for root, subdirs, files in os.walk(local_dataset_dir):
@@ -66,13 +66,13 @@ def download_datasets():
       relative_dir = os.path.relpath(root, local_dataset_dir)
       # This causes Google Cloud Storage to create a dir called '.'
       if relative_dir == '.':
-        target = os.path.join(FLAGS.datasets_path, filename)
+        target = os.path.join(FLAGS.datasets_dir, filename)
       else:
-        target = os.path.join(FLAGS.datasets_path, relative_dir, filename)
+        target = os.path.join(FLAGS.datasets_dir, relative_dir, filename)
       source = os.path.join(root, filename)
       tf.logging.info('Copying {} -> {}'.format(source, target))
       if not tf.gfile.Exists(target):
-        tf.gfile.MakeDirs(os.path.join(FLAGS.datasets_path, relative_dir))
+        tf.gfile.MakeDirs(os.path.join(FLAGS.datasets_dir, relative_dir))
         tf.gfile.Copy(source, target)
 
 
@@ -86,7 +86,7 @@ def load_mnist():
   # Returns
       Tuple of Numpy arrays: `(x_train, y_train), (x_test, y_test)`.
   """
-  path = os.path.join(FLAGS.datasets_path, 'mnist.npz')
+  path = os.path.join(FLAGS.datasets_dir, 'mnist.npz')
   with tf.gfile.GFile(path, 'rb') as f:
     data = np.load(f)
     x_train, y_train = data['x_train'], data['y_train']
@@ -130,7 +130,7 @@ def load_cifar10():
       Tuple of Numpy arrays: `(x_train, y_train), (x_test, y_test)`.
   """
   dirname = 'cifar-10-batches-py'
-  path = os.path.join(FLAGS.datasets_path, dirname)
+  path = os.path.join(FLAGS.datasets_dir, dirname)
 
   num_train_samples = 50000
 
@@ -170,7 +170,7 @@ def load_cifar100(label_mode='fine'):
     raise ValueError('`label_mode` must be one of `"fine"`, `"coarse"`.')
 
   dirname = 'cifar-100-python'
-  path = os.path.join(FLAGS.datasets_path, dirname)
+  path = os.path.join(FLAGS.datasets_dir, dirname)
 
   fpath = os.path.join(path, 'train')
   x_train, y_train = _load_cifar_batch(fpath, label_key=label_mode + '_labels')
@@ -201,7 +201,7 @@ def load_fashion_mnist():
       't10k-labels-idx1-ubyte.gz', 't10k-images-idx3-ubyte.gz'
   ]
 
-  paths = [os.path.join(FLAGS.datasets_path, dirname, fname) for fname in files]
+  paths = [os.path.join(FLAGS.datasets_dir, dirname, fname) for fname in files]
 
   with tf.gfile.GFile(paths[0], 'rb') as f:
     lbpath = gzip.GzipFile(fileobj=f)
@@ -238,7 +238,7 @@ def load_boston_housing(test_split=0.2, seed=113):
         Tuple of Numpy arrays: `(x_train, y_train), (x_test, y_test)`.
     """
   assert 0 <= test_split < 1
-  path = os.path.join(FLAGS.datasets_path, 'boston_housing.npz')
+  path = os.path.join(FLAGS.datasets_dir, 'boston_housing.npz')
   with tf.gfile.GFile(path, 'rb') as f:
     data = np.load(f)
     x = data['x']
