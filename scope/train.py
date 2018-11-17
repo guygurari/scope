@@ -8,11 +8,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import h5py
 import os
 import sys
 import random
 import logging
 import datetime
+import tempfile
 
 from absl import app
 from absl import flags
@@ -530,8 +532,15 @@ def save_model(model):
   """Save the model weights."""
   save_dir = xFLAGS.runlogdir + '/saved_models'
   tf.gfile.MakeDirs(save_dir)
-  model_path = os.path.join(save_dir, '{}-trained-model.h5'.format(run_name()))
-  model.save(model_path)
+  model_filename = '{}-trained-model.h5'.format(run_name())
+  model_path = os.path.join(save_dir, model_filename)
+
+  # TODO when h5py 2.9.0 is available, we can create the h5py.File
+  #      using a tf.gfile.GFile object and skip the temp file.
+  tmp_model_path = os.path.join(tempfile.gettempdir(), model_filename)
+  model.save(tmp_model_path)
+  tf.gfile.Copy(tmp_model_path, model_path)
+  tf.gfile.Remove(tmp_model_path)
   tf.logging.info('Saved trained model at {} '.format(model_path))
 
 
