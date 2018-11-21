@@ -33,15 +33,64 @@ MeasurementFrequency = collections.namedtuple('MeasurementFrequency',
                                               ['freq', 'every_step'])
 
 
-class MeasurementsWriter:
-  """Save scalar and tensor summaries."""
+class MeasurementsRecorder:
+  """Record and save measurement results.
 
-  def __init__(self, args, log_dir):
-    """args = argument dictionary to log along with logs"""
-    self.args = args
-    self.summary_writer = tf.summary.FileWriter(log_dir)
+  Records scalar and tensor measurement results from all the Measurement
+  objects. Saves them as summaries, and also records recent measurements so
+  they can be reused by other Measurement objects.
+  """
 
-  def save_summary(self, name, value, step):
+  def __init__(self, summary_dir):
+    """Initialize.
+
+    Args:
+      summary_dir: Where to save summaries.
+    """
+    self.summary_writer = tf.summary.FileWriter(summary_dir)
+
+    # name -> step -> value
+    self.recent_measurements = collections.defaultdict(dict)
+
+  def record_scalar(self, name, value, step):
+    """Record a scalar measurement.
+
+    Args:
+        name: Measurement key
+        value: Measured scalar value
+        step: Training step where value was measured
+    """
+    self._save_scalar_summary(name, value, step)
+    self._record_recent_measurement(name, value, step)
+
+  def record_tensor(self, name, value, step):
+    """Record a tensor measurement.
+
+    Args:
+        name: Measurement key
+        value: Measured Tensor value
+        step: Training step where value was measured
+    """
+    self._save_tensor_summary(name, value, step)
+    self._record_recent_measurement(name, value, step)
+
+  def get_measurement(name, step):
+    """Returns a recent measurement result.
+
+    Args:
+        name: Measurement key
+        value: Measured Tensor value
+        step: Training step where value was measured
+    """
+    return self.recent_measurements[name][step]
+
+  def _record_recent_measurement(self, name, value, step):
+    """Record a measurement in cache."""
+    # Erase previous measurements
+    self.recent_measurements[name] = {}
+    self.recent_measurements[name][step] = value
+
+  def _save_scalar_summary(self, name, value, step):
     """Save a scalar summary."""
     summary = tf.Summary()
     summary_value = summary.value.add()
@@ -49,7 +98,7 @@ class MeasurementsWriter:
     summary_value.tag = name
     self.summary_writer.add_summary(summary, step)
 
-  def save_tensor_summary(self, name, value, step):
+  def _save_tensor_summary(self, name, value, step):
     """Save a Tensor summary."""
     summary = tf.Summary()
     tensor_proto = tf.make_tensor_proto(value)
@@ -63,15 +112,19 @@ class MeasurementsWriter:
 
 class Measurement(keras.callbacks.Callback):
   """Basic class for performing measurements at intervals
-
     given by MeasurementFrequency.
   """
 
-  def __init__(self, freq, writer):
-    """freq is MeasurementFrequency"""
+  def __init__(self, freq, recorder):
+    """Init.
+
+    Args:
+        freq: Instance of MeasurementFrequency
+        recorder: Instance of MeasurementsRecorder
+    """
     super(Measurement, self).__init__()
     self.freq = freq
-    self.writer = writer
+    self.recorder = recorder
     self.step = 0
 
   def on_epoch_begin(self, epoch, logs=None):
@@ -97,13 +150,13 @@ class Measurement(keras.callbacks.Callback):
     """To be overidden."""
     pass
 
-  def save_summary(self, name, value):
+  def record_scalar(self, name, value):
     """Save a scalar summary at the current step."""
-    self.writer.save_summary(name, value, self.step)
+    self.recorder.record_scalar(name, value, self.step)
 
-  def save_tensor_summary(self, name, value):
+  def record_tensor(self, name, value):
     """Save a tensor summary at the current step."""
-    self.writer.save_tensor_summary(name, value, self.step)
+    self.recorder.save_tensor_summary(name, value, self.step)
 
   @property
   def time_str(self):
@@ -124,13 +177,13 @@ class Measurement(keras.callbacks.Callback):
 class BasicMetricsMeasurement(Measurement):
 
   def __init__(self,
-               writer,
+               recorder,
                model,
                freq,
                train_batches,
                test_batches,
                show_progress=False):
-    super(BasicMetricsMeasurement, self).__init__(freq, writer)
+    super(BasicMetricsMeasurement, self).__init__(freq, recorder)
     self.timer = Timer()
     self.train_batches = train_batches
     self.test_batches = test_batches
@@ -157,10 +210,10 @@ class BasicMetricsMeasurement(Measurement):
     logs = logs or {}
     sess = K.get_session()
 
-    self.save_summary('epoch', self.epoch)
-    self.save_summary('step', self.step)
-    self.save_summary('current_lr', self.model.optimizer.lr.eval(sess))
-    self.save_summary('weight_norm', K.get_session().run(self.weight_norm))
+    self.record_scalar('epoch', self.epoch)
+    self.record_scalar('step', self.step)
+    self.record_scalar('current_lr', self.model.optimizer.lr.eval(sess))
+    self.record_scalar('weight_norm', K.get_session().run(self.weight_norm))
 
     self._compute_metrics(self.train_batches, logs, prefix='')
     self._compute_metrics(self.test_batches, logs, prefix='val_')
@@ -172,8 +225,8 @@ class BasicMetricsMeasurement(Measurement):
   def _compute_metrics(self, batches, logs, prefix):
     means = tfutils.compute_sample_mean_tensor(self.model, batches,
                                                self.all_tensors)
-    self.save_summary(prefix + 'loss', means[0])
-    self.save_summary(prefix + 'acc', means[1])
+    self.record_scalar(prefix + 'loss', means[0])
+    self.record_scalar(prefix + 'acc', means[1])
     logs[prefix + 'loss'] = means[0]
     logs[prefix + 'acc'] = means[1]
 
@@ -200,14 +253,14 @@ class BasicMetricsMeasurement(Measurement):
 class GradientMeasurement(Measurement):
 
   def __init__(self,
-               writer,
+               recorder,
                model,
                freq,
                train_batches,
                test_batches,
                random_overlap=False):
     """freq is MeasurementFrequency."""
-    super(GradientMeasurement, self).__init__(freq, writer)
+    super(GradientMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.train_batches = train_batches
     self.test_batches = test_batches
@@ -320,9 +373,9 @@ class GradientMeasurement(Measurement):
     if prnt:
       tf.logging.info('Hg_eigenvalue ={}\tHg_g_overlap ={}'.format(
           Hg_eigenvalue, Hg_g_overlap))
-    self.save_summary(prefix + 'hessian_gradient/gradient_overlap',
+    self.record_scalar(prefix + 'hessian_gradient/gradient_overlap',
                       Hg_g_overlap)
-    self.save_summary(prefix + 'hessian_gradient/eigenvalue', Hg_eigenvalue)
+    self.record_scalar(prefix + 'hessian_gradient/eigenvalue', Hg_eigenvalue)
     return Hg
 
   def _compute_Hrand(self, batches, logs, prefix, prnt):
@@ -334,16 +387,16 @@ class GradientMeasurement(Measurement):
     if prnt:
       tf.logging.info('Hv_eigenvalue ={}\tHv_v_overlap ={}'.format(
           Hv_eigenvalue, Hv_v_overlap))
-    self.save_summary(prefix + 'hessian_gradient/random_overlap', Hv_v_overlap)
-    self.save_summary(prefix + 'hessian_gradient/random_eigenvalue',
+    self.record_scalar(prefix + 'hessian_gradient/random_overlap', Hv_v_overlap)
+    self.record_scalar(prefix + 'hessian_gradient/random_eigenvalue',
                       Hv_eigenvalue)
 
   def _save_statistics(self, stats, logs, prefix='', prnt=True):
     for name, stat in stats.items():
       full_name = prefix + name
-      self.save_summary(full_name + '/mean_norm', stat.norm_of_mean)
-      self.save_summary(full_name + '/std_norm', stat.norm_of_std)
-      self.save_summary(full_name + '/snr',
+      self.record_scalar(full_name + '/mean_norm', stat.norm_of_mean)
+      self.record_scalar(full_name + '/std_norm', stat.norm_of_std)
+      self.record_scalar(full_name + '/snr',
                         stat.norm_of_mean / stat.norm_of_std)
 
 
@@ -351,7 +404,7 @@ class LanczosHessianMeasurement(Measurement):
   """Measure part of the Hessian spectrum."""
 
   def __init__(self,
-               writer,
+               recorder,
                model,
                freq,
                num_evs,
@@ -362,7 +415,7 @@ class LanczosHessianMeasurement(Measurement):
                log_dir,
                grad_measurement=None):
     """grad_measurement is GradientMeasurement"""
-    super(LanczosHessianMeasurement, self).__init__(freq, writer)
+    super(LanczosHessianMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.num_evs = num_evs
     self.lr = lr
@@ -392,7 +445,7 @@ class LanczosHessianMeasurement(Measurement):
     _save_array(self.detailed_log_dir, self.step, 'H_evals', evals)
     _save_array(self.detailed_log_dir, self.step, 'H_evecs', evecs)
 
-    # self.save_summary('H_evs', evals)
+    # self.record_scalar('H_evs', evals)
 
     if self.grad_measurement is not None:
       g = self.grad_measurement.full_batch_g
@@ -413,8 +466,8 @@ class LanczosHessianMeasurement(Measurement):
             i + 1, ev, ov, ov_sqr, 100 * explained))
       tf.logging.info('---------------------------------------')
 
-      # self.save_summary('Hvec_g_overlaps', overlaps)
-      self.save_summary('hessian_gradient/explained_gradient', explained)
+      # self.record_scalar('Hvec_g_overlaps', overlaps)
+      self.record_scalar('hessian_gradient/explained_gradient', explained)
       _save_array(self.detailed_log_dir, self.step, 'g', g)
       _save_array(self.detailed_log_dir, self.step, 'Hg',
                   self.grad_measurement.full_batch_Hg)
@@ -424,7 +477,7 @@ class LanczosHessianMeasurement(Measurement):
       VVprime = evecs.transpose().dot(self.prev_evecs)
       _save_array(self.detailed_log_dir, self.step, 'Hvec_VVp_overlaps',
                   VVprime)
-      # self.save_summary('Hvec_self_overlaps', np.diag(VVprime))
+      # self.record_scalar('Hvec_self_overlaps', np.diag(VVprime))
       tf.logging.info('V^T . V_prev:')
 
       prev_options = np.get_printoptions()
@@ -439,7 +492,7 @@ class FullHessianMeasurement(Measurement):
   """Measure part of the Hessian spectrum."""
 
   def __init__(self,
-               writer,
+               recorder,
                model,
                freq,
                train_batches,
@@ -453,7 +506,7 @@ class FullHessianMeasurement(Measurement):
         0 for none.
         :param grad_measurement: A GradientMeasurement object
         """
-    super(FullHessianMeasurement, self).__init__(freq, writer)
+    super(FullHessianMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.batches = train_batches
     self.log_dir = log_dir
@@ -526,7 +579,7 @@ class FullHessianMeasurement(Measurement):
         tf.logging.info('H_top_evecs correlations:\n{}'.format(corr))
         tf.logging.info('Diagonal part: {}'.format(corr.diagonal()))
         self._save_array('H_top_evec_corr', corr)
-        # self.save_summary(
+        # self.record_scalar(
         #     'full_hessian/top_evec_correlations', corr)
       self.prev_top_V = top_V
 
@@ -540,7 +593,7 @@ class FullHessianMeasurement(Measurement):
         tf.logging.info('H_top_evec_g_overlaps = {}'.format(
             overlaps[-self.num_eigenvector_correlations:]))
       self._save_array('H_g_overlaps', overlaps)
-      # self.save_summary('full_hessian/g_overlaps', overlaps)
+      # self.record_scalar('full_hessian/g_overlaps', overlaps)
 
   def _save_array(self, name, arr):
     if self.detailed_log_dir is not None:
@@ -551,14 +604,14 @@ class GaussiansMeasurement(Measurement):
   """Measure basic quantities when using Gaussian mixture."""
 
   def __init__(self,
-               writer,
+               recorder,
                model,
                freq,
                x_train,
                y_train,
                grad_measurement=None):
     """grad_measurement is GradientMeasurement"""
-    super(GaussiansMeasurement, self).__init__(freq, writer)
+    super(GaussiansMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.x_train = x_train
     self.grad_measurement = grad_measurement
@@ -602,11 +655,11 @@ class GaussiansMeasurement(Measurement):
 class WeightNormMeasurement(Measurement):
   """Measure norm of weights by layer."""
 
-  def __init__(self, writer, model, freq):
+  def __init__(self, recorder, model, freq):
     """
         :param freq: MeasurementFrequency
         """
-    super(WeightNormMeasurement, self).__init__(freq, writer)
+    super(WeightNormMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.weight_norms = {w.name: tf.norm(w) for w in model.weights}
 
@@ -615,7 +668,7 @@ class WeightNormMeasurement(Measurement):
     timer = tfutils.Timer()
     norms = K.get_session().run(self.weight_norms)
     for name, norm in norms.items():
-      self.save_summary('weight_norm/' + name, norm)
+      self.record_scalar('weight_norm/' + name, norm)
     tf.logging.info('Timing: Weight norm: {} secs'.format(timer.secs))
 
 

@@ -94,7 +94,7 @@ flags.DEFINE_integer('val_samples', -1,
                      'Numbers of validation samples (-1 for all)')
 flags.DEFINE_integer('epochs', 1000, 'Number of epochs')
 flags.DEFINE_integer('batch_size', 64, 'Batch size (-1 for all)')
-flags.DEFINE_boolean('summaries', True, 'Save tensorboard summaries')
+flags.DEFINE_boolean('summaries', True, 'Save tensorboard-style summaries')
 flags.DEFINE_boolean(
     'measure_every_step', False,
     'For every epoch where we measure, measure every '
@@ -462,7 +462,7 @@ def get_model(input_shape):
                                              xFLAGS.num_classes)
 
 
-def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
+def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
   """Add measurement callbacks."""
 
   # TODO convert to Dataset
@@ -477,7 +477,7 @@ def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
     freq = meas.MeasurementFrequency(xFLAGS.loss_and_acc,
                                      xFLAGS.measure_every_step)
     loss_acc_cb = meas.BasicMetricsMeasurement(
-        writer,
+        recorder,
         model,
         freq,
         train_batches,
@@ -485,7 +485,7 @@ def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
         show_progress=not xFLAGS.show_progress_bar)
     callbacks.append(loss_acc_cb)
 
-    weight_norm_cb = meas.WeightNormMeasurement(writer, model, freq)
+    weight_norm_cb = meas.WeightNormMeasurement(recorder, model, freq)
     callbacks.append(weight_norm_cb)
 
   grad_cb = None
@@ -493,14 +493,14 @@ def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
     train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
     freq = meas.MeasurementFrequency(xFLAGS.gradients,
                                      xFLAGS.measure_every_step)
-    grad_cb = meas.GradientMeasurement(writer, model, freq, train_batches,
+    grad_cb = meas.GradientMeasurement(recorder, model, freq, train_batches,
                                        test_batches, xFLAGS.random_overlap)
     callbacks.append(grad_cb)
 
   if xFLAGS.hessian is not None:
     freq = meas.MeasurementFrequency(xFLAGS.hessian, xFLAGS.measure_every_step)
     hess_cb = meas.LanczosHessianMeasurement(
-        writer,
+        recorder,
         model,
         freq,
         xFLAGS.hessian_num_evs,
@@ -518,7 +518,7 @@ def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
     freq = meas.MeasurementFrequency(xFLAGS.full_hessian,
                                      xFLAGS.measure_every_step)
     full_hess_cb = meas.FullHessianMeasurement(
-        writer,
+        recorder,
         model,
         freq,
         train_batches,
@@ -530,7 +530,7 @@ def add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test):
   if xFLAGS.dataset == 'gaussians':
     freq = meas.MeasurementFrequency(1, xFLAGS.measure_every_step)
     gauss_cb = meas.GaussiansMeasurement(
-        writer, model, freq, x_train, y_train, grad_measurement=grad_cb)
+        recorder, model, freq, x_train, y_train, grad_measurement=grad_cb)
     callbacks.append(gauss_cb)
 
 
@@ -590,7 +590,7 @@ def init_logging():
   tf.logging.info('Available devices: {}'.format(devices))
 
 
-def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, writer,
+def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
              callbacks):
   """TensorFlow training loop."""
   train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
@@ -682,9 +682,8 @@ def main(argv):
   callbacks = []
 
   if xFLAGS.summaries:
-    writer = meas.MeasurementsWriter(vars(FLAGS), log_dir=xFLAGS.runlogdir)
-
-    add_callbacks(callbacks, writer, model, x_train, y_train, x_test, y_test)
+    recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
+    add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test)
 
   tf.logging.info('Training...')
 
@@ -699,10 +698,11 @@ def main(argv):
         callbacks=callbacks,
         verbose=xFLAGS.show_progress_bar)
   else:
-    tf_train(x_train, y_train, x_test, y_test, model, tf_opt, writer, callbacks)
+    tf_train(x_train, y_train, x_test, y_test, model,
+             tf_opt, recorder, callbacks)
 
   if xFLAGS.summaries:
-    writer.close()
+    recorder.close()
   tf.logging.info('Done training!')
 
   save_model(model)
