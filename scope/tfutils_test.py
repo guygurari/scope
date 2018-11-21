@@ -702,12 +702,11 @@ class TestTensorFlowUtils(unittest.TestCase):
     self.assertTrue(np.allclose(grad, actual_grad))
 
 
-class MockWriter:
-
+class MockRecorder:
   def log_and_summary(*params):
     pass
 
-  def save_summary(*params):
+  def record_scalar(*params):
     pass
 
 
@@ -746,7 +745,7 @@ class TestMeasurements(unittest.TestCase):
     test_batches = tfutils.MiniBatchMaker(x_test, y_test, batch_size)
 
     meas = measurements.GradientMeasurement(
-        MockWriter(), model,
+        MockRecorder(), model,
         measurements.MeasurementFrequency(freq=1, every_step=False),
         train_batches, test_batches)
 
@@ -782,7 +781,7 @@ class TestMeasurements(unittest.TestCase):
 
     batch_size = n // 4
     batches = tfutils.MiniBatchMaker(features, y, batch_size)
-    meas = measurements.FullHessianMeasurement(MockWriter(), model, 1, batches,
+    meas = measurements.FullHessianMeasurement(MockRecorder(), model, 1, batches,
                                                None, 1)
     actual_hess = meas.compute_hessian()
 
