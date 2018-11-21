@@ -16,6 +16,12 @@ import logging
 import datetime
 import tempfile
 
+# python2+3 compatibility
+try:
+  from StringIO import StringIO
+except ImportError:
+  from io import StringIO
+
 from absl import app
 from absl import flags
 
@@ -666,7 +672,10 @@ def main(argv):
         metrics=['accuracy'])
 
   tf.logging.info('Model summary:')
-  tf.logging.info(model.summary(print_fn=tf.logging.info))
+
+  buf = StringIO()
+  model.summary(print_fn=lambda s: buf.write(s + '\n'))
+  tf.logging.info(buf.getvalue())
   tf.logging.info('Total model parameters: {}'.format(
       tfutils.total_num_weights(model)))
 
