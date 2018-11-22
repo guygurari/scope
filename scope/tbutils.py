@@ -236,6 +236,10 @@ class ExperimentLoader:
       runs = self.select(criteria=runs)
     return self.event_loader.events(runs, tags)
 
+  def single_run_events(self, run, tags=None):
+    """Returns the DataFrame of events for the given run."""
+    return self.events(runs=[run], tags=tags)[run]
+
   def _flags_match_criteria(self, run_flags, criteria):
     """Returns whether the given flags dict matches the criteria dict."""
     for flag, val in criteria.items():

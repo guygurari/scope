@@ -13,10 +13,16 @@ import keras
 import keras.backend as K
 import scope.tfutils as tfutils
 from scope.tfutils import Timer, NumpyPrintEverything
+from absl import flags
+
+FLAGS = flags.FLAGS
 
 
+# Shared names of cached measurements
 FULL_BATCH_G = 'full_batch_g'
 FULL_BATCH_HG = 'full_batch_Hg'
+HESSIAN_EIGENVECS = 'H_evecs'
+HESSIAN_EIGENVALS = 'H_evals'
 
 
 def _overlap(vec1, vec2):
@@ -260,6 +266,7 @@ class BasicMetricsMeasurement(Measurement):
 
     self.record_scalar('epoch', self.epoch)
     self.record_scalar('step', self.step)
+    # TODO don't use the Keras optimizer for this since we switched to TF
     self.record_scalar('current_lr', self.model.optimizer.lr.eval(sess))
     self.record_scalar('weight_norm', K.get_session().run(self.weight_norm))
 
@@ -494,6 +501,11 @@ class LanczosHessianMeasurement(Measurement):
     _save_array(self.detailed_log_dir, self.step, 'H_evals', evals)
     _save_array(self.detailed_log_dir, self.step, 'H_evecs', evecs)
 
+    self.recorder.record_tensor(
+        HESSIAN_EIGENVECS, evecs, self.step, save_summary=False)
+    self.recorder.record_tensor(
+        HESSIAN_EIGENVALS, evals, self.step, save_summary=False)
+
     # self.record_scalar('H_evs', evals)
 
     if self.recorder.is_recorded(FULL_BATCH_G, self.step):
@@ -533,6 +545,57 @@ class LanczosHessianMeasurement(Measurement):
         tf.logging.info(np.diag(VVprime))
 
     self.prev_evecs = evecs
+
+
+class LossInterpolationMeasurement(Measurement):
+  """Measure the loss interpolated around the current point in various
+  directions."""
+  def __init__(self,
+               recorder,
+               model,
+               freq,
+               train_batches,
+               test_batches):
+    super(LossInterpolationMeasurement, self).__init__(freq, recorder)
+    self.model = model
+    self.train_batches = train_batches
+    self.test_batches = test_batches
+
+  def measure(self, logs=None):
+    if self.recorder.is_recorded(FULL_BATCH_G, self.step):
+      interp = self._interpolate_in_direction(
+          self.recorder.get_measurement(FULL_BATCH_G, self.step),
+          FLAGS.lr)
+      self.recorder.record_tensor(
+          'interpolation/loss_in_grad_dir', interp, self.step)
+
+    if self.recorder.is_recorded(HESSIAN_EIGENVECS, self.step):
+      evecs = self.recorder.get_measurement(HESSIAN_EIGENVECS, self.step)
+      interp = self._interpolate_in_direction(
+          self.recorder.get_measurement(FULL_BATCH_G, self.step),
+          FLAGS.lr)
+
+
+  def _interpolate_in_direction(self, vec, step_size):
+    orig_weights = self.model.get_weights()
+    flat_orig_weights = tfutils.flatten_tensor_list(orig_weights)
+
+    steps = step_size * np.linspace(-1, 2, num=10)
+    losses = []
+
+    for alpha in steps:
+      target_weights = flat_orig_weights + alpha * vec
+      unflatten_target_weights = K.get_session().run(
+          tfutils.unflatten_tensor_list(
+              target_weights,
+              self.model.trainable_weights))
+      self.model.set_weights(unflatten_target_weights)
+      loss = tfutils.compute_sample_mean_tensor(
+          self.model, self.train_batches, self.model.total_loss)
+      losses.append(loss)
+
+    self.model.set_weights(orig_weights)
+    return np.array([steps, losses])
 
 
 class FullHessianMeasurement(Measurement):

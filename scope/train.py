@@ -128,6 +128,10 @@ flags.DEFINE_integer(
 flags.DEFINE_boolean(
     'grad_2pt', False, 'Also collect gradient 2-point functions '
     '(much more expensive)')
+flags.DEFINE_string(
+    'interpolate_loss', None,
+    'Measure interpolated loss in various directions at the given frequency '
+    ' (e.g. "1", "2epochs", "10steps")')
 
 flags.DEFINE_integer('gaussians_num_classes', 2,
                      'Number of classes in gaussians dataset')
@@ -520,6 +524,17 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
         xFLAGS.runlogdir,
         num_eigenvector_correlations=xFLAGS.output_dim)
     callbacks.append(full_hess_cb)
+
+  if xFLAGS.interpolate_loss is not None:
+    train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
+    freq = meas.Frequency.from_string(xFLAGS.interpolate_loss)
+    loss_interp_cb = meas.LossInterpolationMeasurement(
+        recorder,
+        model,
+        freq,
+        train_batches,
+        test_batches)
+    callbacks.append(loss_interp_cb)
 
   if xFLAGS.dataset == 'gaussians':
     freq = meas.Frequency(1, xFLAGS.measure_gaussians_every_step)
