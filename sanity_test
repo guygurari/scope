@@ -1,6 +1,7 @@
 #!/bin/bash
 
 echo "============= MNIST =============" && \
-python scope/train.py -v 0 --name test --dataset mnist --fc 20,20 --gradients 1 --epochs 2 --hessian 1 --full_hessian 1 --image_resize 0.3 --samples 100 && \
+python scope/train.py -v 0 --name test --dataset mnist --fc 20,20 --gradients 1 --epochs 2 --hessian 1 --full_hessian 1 --image_resize 0.2 --samples 100 && \
 echo "============= GAUSSIANS =============" && \
 python scope/train.py -v 0 --name test --dataset gaussians --fc 20,20 --gradients 1 --epochs 2 --hessian 1 --full_hessian 1
+
