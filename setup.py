@@ -2,7 +2,7 @@ from setuptools import find_packages
 from setuptools import setup
 
 REQUIRED_PACKAGES = ['absl-py', 'keras>=2.2.4', 'colored_traceback',
-                     'tensorboard', 'h5py']
+                     'tensorboard', 'h5py', 'Pillow']
 
 setup(name='scope',
       version='0.1',

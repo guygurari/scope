@@ -14,6 +14,10 @@ import scope.tfutils as tfutils
 from scope.tfutils import Timer, NumpyPrintEverything
 
 
+FULL_BATCH_G = 'full_batch_g'
+FULL_BATCH_HG = 'full_batch_Hg'
+
+
 def _overlap(vec1, vec2):
   """Compute the normalized overlap between two NumPy vectors"""
   norm1 = np.linalg.norm(vec1)
@@ -52,29 +56,39 @@ class MeasurementsRecorder:
     # name -> step -> value
     self.recent_measurements = collections.defaultdict(dict)
 
-  def record_scalar(self, name, value, step):
+  def record_scalar(self, name, value, step, save_summary=True):
     """Record a scalar measurement.
 
     Args:
         name: Measurement key
         value: Measured scalar value
         step: Training step where value was measured
+        save_summary: Whether to save a summary. If False, the value is just
+        recorded for use by other Measurements.
     """
-    self._save_scalar_summary(name, value, step)
     self._record_recent_measurement(name, value, step)
+    if save_summary:
+        self._save_scalar_summary(name, value, step)
 
-  def record_tensor(self, name, value, step):
+  def record_tensor(self, name, value, step, save_summary=True):
     """Record a tensor measurement.
 
     Args:
         name: Measurement key
         value: Measured Tensor value
         step: Training step where value was measured
+        save_summary: Whether to save a summary. If False, the value is just
+        recorded for use by other Measurements.
     """
-    self._save_tensor_summary(name, value, step)
     self._record_recent_measurement(name, value, step)
+    if save_summary:
+        self._save_tensor_summary(name, value, step)
 
-  def get_measurement(name, step):
+  def is_recorded(self, name, step):
+    """Returns True if the given measurement was recorded."""
+    return step in self.recent_measurements[name]
+
+  def get_measurement(self, name, step):
     """Returns a recent measurement result.
 
     Args:
@@ -150,13 +164,13 @@ class Measurement(keras.callbacks.Callback):
     """To be overidden."""
     pass
 
-  def record_scalar(self, name, value):
+  def record_scalar(self, name, value, save_summary=True):
     """Save a scalar summary at the current step."""
-    self.recorder.record_scalar(name, value, self.step)
+    self.recorder.record_scalar(name, value, self.step, save_summary)
 
-  def record_tensor(self, name, value):
+  def record_tensor(self, name, value, save_summary=True):
     """Save a tensor summary at the current step."""
-    self.recorder.save_tensor_summary(name, value, self.step)
+    self.recorder.record_tensor(name, value, self.step, save_summary)
 
   @property
   def time_str(self):
@@ -306,6 +320,10 @@ class GradientMeasurement(Measurement):
     tf.logging.info('Training gradients ...')
     train_stats, self.full_batch_g, self.full_batch_Hg = (
         self._compute_gradients(self.train_batches, logs, prefix='', prnt=True))
+    self.recorder.record_tensor(
+        FULL_BATCH_G, self.full_batch_g, self.step, save_summary=False)
+    self.recorder.record_tensor(
+        FULL_BATCH_HG, self.full_batch_Hg, self.step, save_summary=False)
 
     if self.random_overlap:
       self._compute_Hrand(self.train_batches, logs, prefix='', prnt=True)
@@ -389,7 +407,7 @@ class GradientMeasurement(Measurement):
           Hv_eigenvalue, Hv_v_overlap))
     self.record_scalar(prefix + 'hessian_gradient/random_overlap', Hv_v_overlap)
     self.record_scalar(prefix + 'hessian_gradient/random_eigenvalue',
-                      Hv_eigenvalue)
+                       Hv_eigenvalue)
 
   def _save_statistics(self, stats, logs, prefix='', prnt=True):
     for name, stat in stats.items():
@@ -397,7 +415,7 @@ class GradientMeasurement(Measurement):
       self.record_scalar(full_name + '/mean_norm', stat.norm_of_mean)
       self.record_scalar(full_name + '/std_norm', stat.norm_of_std)
       self.record_scalar(full_name + '/snr',
-                        stat.norm_of_mean / stat.norm_of_std)
+                         stat.norm_of_mean / stat.norm_of_std)
 
 
 class LanczosHessianMeasurement(Measurement):
@@ -412,14 +430,11 @@ class LanczosHessianMeasurement(Measurement):
                y_train,
                batch_size,
                lr,
-               log_dir,
-               grad_measurement=None):
-    """grad_measurement is GradientMeasurement"""
+               log_dir):
     super(LanczosHessianMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.num_evs = num_evs
     self.lr = lr
-    self.grad_measurement = grad_measurement
     self.hessian_spec = tfutils.KerasHessianSpectrum(model, x_train, y_train,
                                                      batch_size)
     self.prev_evecs = None
@@ -447,8 +462,8 @@ class LanczosHessianMeasurement(Measurement):
 
     # self.record_scalar('H_evs', evals)
 
-    if self.grad_measurement is not None:
-      g = self.grad_measurement.full_batch_g
+    if self.recorder.is_recorded(FULL_BATCH_G, self.step):
+      g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
       unit_g = g / np.linalg.norm(g)
       # Take the absolute value because evec has arbitrary
       # orientation.
@@ -470,7 +485,7 @@ class LanczosHessianMeasurement(Measurement):
       self.record_scalar('hessian_gradient/explained_gradient', explained)
       _save_array(self.detailed_log_dir, self.step, 'g', g)
       _save_array(self.detailed_log_dir, self.step, 'Hg',
-                  self.grad_measurement.full_batch_Hg)
+                  self.recorder.get_measurement(FULL_BATCH_HG, self.step))
       _save_array(self.detailed_log_dir, self.step, 'Hvec_g_overlaps', overlaps)
 
     if self.prev_evecs is not None:
@@ -497,21 +512,18 @@ class FullHessianMeasurement(Measurement):
                freq,
                train_batches,
                log_dir,
-               num_eigenvector_correlations,
-               grad_measurement=None):
+               num_eigenvector_correlations):
     """
         :param freq: MeasurementFrequency
         :param num_eigenvector_correlations: Number of leading eigenvectors
         to include when computing correlations between subsequent eigenvectors.
         0 for none.
-        :param grad_measurement: A GradientMeasurement object
         """
     super(FullHessianMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.batches = train_batches
     self.log_dir = log_dir
     self.num_eigenvector_correlations = num_eigenvector_correlations
-    self.grad_measurement = grad_measurement
     self.prev_top_V = None
     if log_dir is None:
       self.detailed_log_dir = None
@@ -567,7 +579,7 @@ class FullHessianMeasurement(Measurement):
 
     tf.logging.info('Found {} eigenvalues'.format(len(D)))
     self._save_array('H_evs', D)
-    self.save_tensor_summary('full_hessian/eigenvalues', D)
+    self.record_tensor('full_hessian/eigenvalues', D)
 
     if self.num_eigenvector_correlations > 0:
       top_V = V[:, -self.num_eigenvector_correlations:]
@@ -583,8 +595,8 @@ class FullHessianMeasurement(Measurement):
         #     'full_hessian/top_evec_correlations', corr)
       self.prev_top_V = top_V
 
-    if self.grad_measurement is not None:
-      mean_grad = self.grad_measurement.full_batch_g
+    if self.recorder.is_recorded(FULL_BATCH_G, self.step):
+      mean_grad = self.recorder.get_measurement(FULL_BATCH_G, self.step)
       g = mean_grad / np.linalg.norm(mean_grad)
       self._save_array('g', g)
 
@@ -608,13 +620,10 @@ class GaussiansMeasurement(Measurement):
                model,
                freq,
                x_train,
-               y_train,
-               grad_measurement=None):
-    """grad_measurement is GradientMeasurement"""
+               y_train):
     super(GaussiansMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.x_train = x_train
-    self.grad_measurement = grad_measurement
 
   def measure(self, logs):
     """Measure Gaissian overlaps."""
@@ -647,9 +656,6 @@ class GaussiansMeasurement(Measurement):
                         np.linalg.norm(theta2), factor1, factor2))
     # tf.logging.info('biases=', biases)
     # tf.logging.info('exp(biases)=', np.exp(biases))
-
-    # if self.grad_measurement is not None:
-    #     g = self.grad_measurement.full_batch_g
 
 
 class WeightNormMeasurement(Measurement):

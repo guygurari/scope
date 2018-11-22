@@ -508,8 +508,7 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
         y_train,
         xFLAGS.hessian_batch_size,
         lr=xFLAGS.lr,
-        log_dir=xFLAGS.runlogdir,
-        grad_measurement=grad_cb)
+        log_dir=xFLAGS.runlogdir)
     callbacks.append(hess_cb)
 
   if xFLAGS.full_hessian is not None:
@@ -523,14 +522,13 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
         freq,
         train_batches,
         xFLAGS.runlogdir,
-        num_eigenvector_correlations=xFLAGS.output_dim,
-        grad_measurement=grad_cb)
+        num_eigenvector_correlations=xFLAGS.output_dim)
     callbacks.append(full_hess_cb)
 
   if xFLAGS.dataset == 'gaussians':
     freq = meas.MeasurementFrequency(1, xFLAGS.measure_every_step)
     gauss_cb = meas.GaussiansMeasurement(
-        recorder, model, freq, x_train, y_train, grad_measurement=grad_cb)
+        recorder, model, freq, x_train, y_train)
     callbacks.append(gauss_cb)
 
 
