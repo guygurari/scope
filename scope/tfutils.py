@@ -49,6 +49,24 @@ class NumpyPrintEverything:
     np.set_printoptions(threshold=self.saved_threshold)
 
 
+class NumpyPrintoptions:
+  """Temporarily set NumPy printoptions.
+
+  Synopsis:
+    with NumpyPrintoptions(formatter={'float': '{:0.2f}'.format}):
+        print(numpy_array)
+  """
+  def __init__(self, **kwargs):
+    self.options = kwargs
+
+  def __enter__(self):
+    self.saved_options = np.get_printoptions()
+    np.set_printoptions(**self.options)
+
+  def __exit__(self, type, value, traceback):
+    np.set_printoptions(**self.saved_options)
+
+
 class MiniBatchMaker:
   """Shuffle data and split it into batches."""
 

@@ -495,10 +495,8 @@ class LanczosHessianMeasurement(Measurement):
       # self.record_scalar('Hvec_self_overlaps', np.diag(VVprime))
       tf.logging.info('V^T . V_prev:')
 
-      prev_options = np.get_printoptions()
-      np.set_printoptions(formatter={'float': '{:0.2f}'.format})
-      tf.logging.info(np.diag(VVprime))
-      np.set_printoptions(prev_options)
+      with tfutils.NumpyPrintoptions(formatter={'float': '{:0.2f}'.format}):
+        tf.logging.info(np.diag(VVprime))
 
     self.prev_evecs = evecs
 
