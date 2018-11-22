@@ -95,33 +95,31 @@ flags.DEFINE_integer('val_samples', -1,
 flags.DEFINE_integer('epochs', 1000, 'Number of epochs')
 flags.DEFINE_integer('batch_size', 64, 'Batch size (-1 for all)')
 flags.DEFINE_boolean('summaries', True, 'Save tensorboard-style summaries')
-flags.DEFINE_boolean(
-    'measure_every_step', False,
-    'For every epoch where we measure, measure every '
-    'step (every mini-batch) in the epoch instead of '
-    'only once at the beginning.')
 flags.DEFINE_integer(
     'measure_batch_size', 2048,
     'Batch size used when calculating measurements. Does not '
     'affect results, only performance (-1 for all).')
-flags.DEFINE_integer(
-    'loss_and_acc', 1,
-    'Measure loss and accuracy with given frequency. This is '
-    'more accurate than the builtin Keras measurement.')
-flags.DEFINE_integer(
-    'gradients', None, 'Collect gradient statistics every given '
-    'number of epochs')
+flags.DEFINE_string(
+    'loss_and_acc', '1',
+    'Measure loss and accuracy with given frequency '
+    '(frequency e.g. "1", "2epochs", "10steps"). '
+    'This is more accurate than the builtin Keras measurement.')
+flags.DEFINE_string(
+    'gradients', None, 'Collect gradient statistics at given frequency '
+    '(e.g. "1", "2epochs", "10steps")')
 flags.DEFINE_boolean('random_overlap', False,
                      'Compute overlaps of the Hessian with random vectors')
-flags.DEFINE_integer('hessian', None,
-                     'Compute a partial Hessian spectrum every FREQ epochs')
+flags.DEFINE_string(
+    'hessian', None,
+    'Compute a partial Hessian spectrum at given frequency '
+    ' (e.g. "1", "2epochs", "10steps")')
 flags.DEFINE_integer('hessian_num_evs', 10,
                      'How many Hessian eigenvalues to measure')
 flags.DEFINE_integer('hessian_batch_size', 2048,
                      'Batch size when computing Hessian spectrum (-1 for all)')
-flags.DEFINE_integer(
-    'full_hessian', None, 'Measure the full Hessian spectrum '
-    'every this many epochs')
+flags.DEFINE_string(
+    'full_hessian', None, 'Measure the full Hessian spectrum at given frequency'
+    ' (e.g. "1", "2epochs", "10steps")')
 flags.DEFINE_integer(
     'full_hessian_batch_size', 2048,
     'Batch size when computing the full Hessian. '
@@ -136,6 +134,9 @@ flags.DEFINE_integer('gaussians_num_classes', 2,
 flags.DEFINE_float('gaussians_sigma', 0, 'Stddev of noise in gaussians dataset')
 flags.DEFINE_integer('gaussians_dim', 1000,
                      'Input dimension in gaussians dataset')
+flags.DEFINE_boolean('measure_gaussians_every_step', False,
+                     'If True, measure gaussians every steps, '
+                     'otherwise every epoch')
 
 flags.DEFINE_boolean('show_progress_bar', False,
                      'Show progress bar during training')
@@ -200,8 +201,6 @@ def run_name():  # pylint: disable=too-many-branches
     name += '-dropout'
   else:
     name += '-nodropout'
-  if xFLAGS.measure_every_step:
-    name += '-everystep'
   # else:
   #     name += '-norandomlabels'
   if xFLAGS.l2 is not None:
@@ -369,7 +368,7 @@ def get_dataset():
 
     n_train = 20000
     n_test = 10000
-    num_classes = int(xFLAGS.gaussians_num_classes)
+    output_dim = num_classes = int(xFLAGS.gaussians_num_classes)
     d = int(xFLAGS.gaussians_dim)
     centers = np.random.randn(d, num_classes)
     centers = centers / np.linalg.norm(centers, axis=0)
@@ -474,8 +473,7 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
 
   if xFLAGS.loss_and_acc is not None:
     train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
-    freq = meas.MeasurementFrequency(xFLAGS.loss_and_acc,
-                                     xFLAGS.measure_every_step)
+    freq = meas.Frequency.from_string(xFLAGS.loss_and_acc)
     loss_acc_cb = meas.BasicMetricsMeasurement(
         recorder,
         model,
@@ -491,14 +489,13 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
   grad_cb = None
   if xFLAGS.gradients is not None:
     train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
-    freq = meas.MeasurementFrequency(xFLAGS.gradients,
-                                     xFLAGS.measure_every_step)
+    freq = meas.Frequency.from_string(xFLAGS.gradients)
     grad_cb = meas.GradientMeasurement(recorder, model, freq, train_batches,
                                        test_batches, xFLAGS.random_overlap)
     callbacks.append(grad_cb)
 
   if xFLAGS.hessian is not None:
-    freq = meas.MeasurementFrequency(xFLAGS.hessian, xFLAGS.measure_every_step)
+    freq = meas.Frequency.from_string(xFLAGS.hessian)
     hess_cb = meas.LanczosHessianMeasurement(
         recorder,
         model,
@@ -514,8 +511,7 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
   if xFLAGS.full_hessian is not None:
     train_batches, test_batches = get_batch_makers(
         xFLAGS.full_hessian_batch_size)
-    freq = meas.MeasurementFrequency(xFLAGS.full_hessian,
-                                     xFLAGS.measure_every_step)
+    freq = meas.Frequency.from_string(xFLAGS.full_hessian)
     full_hess_cb = meas.FullHessianMeasurement(
         recorder,
         model,
@@ -526,7 +522,7 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
     callbacks.append(full_hess_cb)
 
   if xFLAGS.dataset == 'gaussians':
-    freq = meas.MeasurementFrequency(1, xFLAGS.measure_every_step)
+    freq = meas.Frequency(1, xFLAGS.measure_gaussians_every_step)
     gauss_cb = meas.GaussiansMeasurement(
         recorder, model, freq, x_train, y_train)
     callbacks.append(gauss_cb)

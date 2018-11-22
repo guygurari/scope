@@ -746,7 +746,7 @@ class TestMeasurements(unittest.TestCase):
 
     meas = measurements.GradientMeasurement(
         MockRecorder(), model,
-        measurements.MeasurementFrequency(freq=1, every_step=False),
+        measurements.Frequency(freq=1, stepwise=False),
         train_batches, test_batches)
 
     meas.on_epoch_begin(0)

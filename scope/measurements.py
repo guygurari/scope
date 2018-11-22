@@ -5,6 +5,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import re
 import collections
 import numpy as np
 import tensorflow as tf
@@ -29,12 +30,47 @@ def _save_array(directory, time, name, array):
   np.save('{}/{}_{:05d}.npy'.format(directory, name, time), array)
 
 
-# Specifies how often to measure. 'freq' is the epoch or step frequency.
-# 0 means don't measure, 1 means measure every epoch/step, etc.
-# every_step is a boolean, if True then the measurement is performed
-# every freq steps, otherwise every freq epochs.
-MeasurementFrequency = collections.namedtuple('MeasurementFrequency',
-                                              ['freq', 'every_step'])
+class Frequency:
+  """Describes a measurement frequency."""
+  def __init__(self, freq, stepwise):
+    """Init.
+
+    Args:
+        freq: How often to measure. 0 means don't measure.
+        stepwise: If True, frequency is measured per step.
+                  If False, it is per epoch.
+    """
+    self.freq = freq
+    self.stepwise = stepwise
+
+  @property
+  def epochwise(self):
+    """Should we measure per epoch."""
+    return not self.stepwise
+
+  @classmethod
+  def from_string(self, freq_desc):
+    """Parse a frequency from a string description.
+
+    Examples:
+    - "1" means "measure once per epoch"
+    - "2e" or "2epoch" means "measure once every 2 epochs"
+    - "10s" or "10steps" means "measure once every 10 steps"
+
+    Does something in more detail. And more detail.
+
+    Args:
+      freq_desc: A string describing the measurement frequency
+    """
+    match_steps = re.match(r'(\d+)s(tep(s)?)?$', freq_desc)
+    if match_steps:
+      return Frequency(freq=int(match_steps.group(1)), stepwise=True)
+
+    match_epochs = re.match(r'(\d+)(e(poch(s)?)?)?$', freq_desc)
+    if match_epochs:
+      return Frequency(freq=int(match_epochs.group(1)), stepwise=False)
+
+    raise ValueError('Cannot parse frequency string "{}"'.format(freq_desc))
 
 
 class MeasurementsRecorder:
@@ -126,14 +162,14 @@ class MeasurementsRecorder:
 
 class Measurement(keras.callbacks.Callback):
   """Basic class for performing measurements at intervals
-    given by MeasurementFrequency.
+    given by Frequency.
   """
 
   def __init__(self, freq, recorder):
     """Init.
 
     Args:
-        freq: Instance of MeasurementFrequency
+        freq: Instance of Frequency
         recorder: Instance of MeasurementsRecorder
     """
     super(Measurement, self).__init__()
@@ -144,8 +180,7 @@ class Measurement(keras.callbacks.Callback):
   def on_epoch_begin(self, epoch, logs=None):
     self.batch = 0
     self.epoch = epoch
-    if self._should_measure_by_epoch() \
-       and not self.freq.every_step:
+    if self._should_measure_by_epoch():
       self.measure(logs)
 
   def on_epoch_end(self, epoch, logs=None):
@@ -153,8 +188,7 @@ class Measurement(keras.callbacks.Callback):
 
   def on_batch_begin(self, batch, logs=None):
     self.batch = batch
-    if self._should_measure_by_step() \
-       and self.freq.every_step:
+    if self._should_measure_by_step():
       self.measure(logs)
 
   def on_batch_end(self, batch, logs=None):
@@ -180,12 +214,12 @@ class Measurement(keras.callbacks.Callback):
   def _should_measure_by_epoch(self):
     return self.freq.freq > 0 \
         and self.epoch % self.freq.freq == 0 \
-        and not self.freq.every_step
+        and self.freq.epochwise
 
   def _should_measure_by_step(self):
     return self.freq.freq > 0 \
         and self.step % self.freq.freq == 0 \
-        and self.freq.every_step
+        and self.freq.stepwise
 
 
 class BasicMetricsMeasurement(Measurement):
@@ -273,7 +307,7 @@ class GradientMeasurement(Measurement):
                train_batches,
                test_batches,
                random_overlap=False):
-    """freq is MeasurementFrequency."""
+    """freq is Frequency."""
     super(GradientMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.train_batches = train_batches
@@ -512,7 +546,7 @@ class FullHessianMeasurement(Measurement):
                log_dir,
                num_eigenvector_correlations):
     """
-        :param freq: MeasurementFrequency
+        :param freq: Frequency
         :param num_eigenvector_correlations: Number of leading eigenvectors
         to include when computing correlations between subsequent eigenvectors.
         0 for none.
@@ -661,7 +695,7 @@ class WeightNormMeasurement(Measurement):
 
   def __init__(self, recorder, model, freq):
     """
-        :param freq: MeasurementFrequency
+        :param freq: Frequency
         """
     super(WeightNormMeasurement, self).__init__(freq, recorder)
     self.model = model
