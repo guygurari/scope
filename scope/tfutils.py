@@ -318,9 +318,14 @@ def hessians(y, xs):
   return hessians
 
 
+def num_weights(weights):
+  """Number of weights in the given list of weight tensors."""
+  return sum([w.shape.num_elements() for w in weights])
+
+
 def total_num_weights(model):
   """Total number of weights in the given Keras model."""
-  return sum([w.shape.num_elements() for w in model.trainable_weights])
+  return num_weights(model.trainable_weights)
 
 
 def total_tensor_elements(x):
@@ -611,14 +616,28 @@ class TensorListStatistics(list):
 class KerasHessianSpectrum:
   """Computes the partial Hessian spectrum of a Keras model using Lanczos."""
 
-  def __init__(self, model, x, y, batch_size=1024, loss=None):
+  def __init__(self, model, x, y, batch_size=1024, weights=None, loss=None):
     """model is a keras sequential model.
 
-    The loss can be specified
-        separately for unit testing purposes.
+    Args:
+        model: A Keras Model
+        x: Training samples
+        y: Training labels
+        batch_size: Batch size for computing the Hessian (affects performance
+            but not results)
+        weights: Weights with respect to which to compute the Hessian.
+            Can be a weight tensor or a list of tensors. If None,
+            all model weights are used.
+        loss: Can be specified separately for unit testing purposes.
     """
     self.model = model
-    self.num_weights = total_num_weights(model)
+
+    if weights is None:
+      self.weights = model.trainable_weights
+    else:
+      self.weights = _AsList(weights)
+
+    self.num_weights = num_weights(self.weights)
     self.v = tf.placeholder(tf.float32, shape=(self.num_weights,))
 
     # Delay looking at model because it may not be compiled yet
@@ -642,8 +661,7 @@ class KerasHessianSpectrum:
   def Hv(self):
     """The Hessian-vector product tensor"""
     if self._Hv is None:
-      self._Hv = hessian_vector_product(self.loss, self.model.trainable_weights,
-                                        self.v)
+      self._Hv = hessian_vector_product(self.loss, self.weights, self.v)
     return self._Hv
 
   def compute_spectrum(self, k, show_progress=False):

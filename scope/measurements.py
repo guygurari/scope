@@ -471,45 +471,81 @@ class LanczosHessianMeasurement(Measurement):
                y_train,
                batch_size,
                lr,
-               log_dir):
+               log_dir,
+               weights=None,
+               grad_subvec=None,
+               name=None):
+    """Init.
+
+    Args:
+        weights: Which weights to use for the Hessian. If None, use all the
+        weights.
+        grad_subvec: A function that accepts a flat gradient vector and returns
+        the subvector of the gradient corresponding to the given weights.
+        name: The name prefix for this measurement.
+    """
     super(LanczosHessianMeasurement, self).__init__(freq, recorder)
     self.model = model
     self.num_evs = num_evs
     self.lr = lr
-    self.hessian_spec = tfutils.KerasHessianSpectrum(model, x_train, y_train,
-                                                     batch_size)
-    self.prev_evecs = None
+    self.grad_subvec = grad_subvec
 
-    self.detailed_log_dir = os.path.join(log_dir, 'lanczos_hessian')
+    self.name = name
+    self.log_prefix = '' if name is None else '({}) '.format(name)
+    self.key_prefix = '' if name is None else '{}/'.format(name)
+
+    if (weights is None) != (grad_subvec is None):
+      raise ValueError('weights and grad_subvec must be specified together')
+
+    if weights is None:
+      self.weights = model.trainable_weights
+    else:
+      self.weights = weights
+
+    self.hessian_spec = tfutils.KerasHessianSpectrum(
+        model, x_train, y_train, batch_size, weights)
+
+    self.prev_evecs = None
+    if name is None:
+      self.detailed_log_dir = os.path.join(log_dir, 'lanczos_hessian')
+    else:
+      self.detailed_log_dir = os.path.join(
+        log_dir, '{}_lanczos_hessian'.format(name))
     os.makedirs(self.detailed_log_dir)
 
   def measure(self, logs):
     """Compute parts of the Hessian spectrum"""
-    tf.logging.info('Computing {} H evs with Lanczos ...'.format(self.num_evs))
+    tf.logging.info('{}Computing {} H evs with Lanczos ...'.format(
+      self.log_prefix, self.num_evs))
     evals, evecs = self.hessian_spec.compute_spectrum(
         self.num_evs, show_progress=True)
 
     secs_per_iter = self.hessian_spec.lanczos_secs \
                     / self.hessian_spec.lanczos_iterations
-    tf.logging.info('Hessian took {:.2f} secs, {} Lanczos iterations, '
+    tf.logging.info('{}Hessian took {:.2f} secs, {} Lanczos iterations, '
                     '({:.2f} secs/iteration)'.format(
-                        self.hessian_spec.lanczos_secs,
-                        self.hessian_spec.lanczos_iterations,
-                        secs_per_iter,
+                      self.log_prefix,
+                      self.hessian_spec.lanczos_secs,
+                      self.hessian_spec.lanczos_iterations,
+                      secs_per_iter,
                     ))
 
     _save_array(self.detailed_log_dir, self.step, 'H_evals', evals)
     _save_array(self.detailed_log_dir, self.step, 'H_evecs', evecs)
 
     self.recorder.record_tensor(
-        HESSIAN_EIGENVECS, evecs, self.step, save_summary=False)
+      self.key_prefix + HESSIAN_EIGENVECS,
+      evecs, self.step, save_summary=False)
     self.recorder.record_tensor(
-        HESSIAN_EIGENVALS, evals, self.step, save_summary=False)
-
-    # self.record_scalar('H_evs', evals)
+      self.key_prefix + HESSIAN_EIGENVALS,
+      evals, self.step, save_summary=False)
 
     if self.recorder.is_recorded(FULL_BATCH_G, self.step):
       g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
+
+      if self.grad_subvec is not None:
+        g = self.grad_subvec(g)
+
       unit_g = g / np.linalg.norm(g)
       # Take the absolute value because evec has arbitrary
       # orientation.
@@ -528,7 +564,9 @@ class LanczosHessianMeasurement(Measurement):
       tf.logging.info('---------------------------------------')
 
       # self.record_scalar('Hvec_g_overlaps', overlaps)
-      self.record_scalar('hessian_gradient/explained_gradient', explained)
+      self.record_scalar(
+        self.key_prefix + 'hessian_gradient/explained_gradient',
+        explained)
       _save_array(self.detailed_log_dir, self.step, 'g', g)
       _save_array(self.detailed_log_dir, self.step, 'Hg',
                   self.recorder.get_measurement(FULL_BATCH_HG, self.step))
@@ -539,10 +577,17 @@ class LanczosHessianMeasurement(Measurement):
       _save_array(self.detailed_log_dir, self.step, 'Hvec_VVp_overlaps',
                   VVprime)
       # self.record_scalar('Hvec_self_overlaps', np.diag(VVprime))
-      tf.logging.info('V^T . V_prev:')
+      tf.logging.info('{}V^T . V_prev:'.format(self.log_prefix))
 
       with tfutils.NumpyPrintoptions(formatter={'float': '{:0.2f}'.format}):
         tf.logging.info(np.diag(VVprime))
+
+      prod_abs = np.abs(VVprime)
+      subspace_overlap = np.mean(np.linalg.norm(prod_abs, axis=1)**2)
+      self.record_scalar(
+        self.key_prefix + 'Hvec_subspace_overlap', subspace_overlap)
+      tf.logging.info('{}Subspace V, V_prev overlap: {}'.format(
+        self.log_prefix, subspace_overlap))
 
     self.prev_evecs = evecs
 
@@ -562,34 +607,45 @@ class LossInterpolationMeasurement(Measurement):
     self.test_batches = test_batches
 
   def measure(self, logs=None):
-    if self.recorder.is_recorded(FULL_BATCH_G, self.step):
-      tf.logging.info('Interpolating loss in gradient direction ...')
-      g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
-      interp = self._interpolate_in_direction(-g, FLAGS.lr)
-      self.recorder.record_tensor(
-          'interpolation/loss_in_grad_dir', interp, self.step)
-
-    if self.recorder.is_recorded(HESSIAN_EIGENVECS, self.step):
+    if (self.recorder.is_recorded(HESSIAN_EIGENVECS, self.step) and
+        self.recorder.is_recorded(FULL_BATCH_G, self.step)):
       tf.logging.info('Interpolating loss in Hessian eigenvector directions ...')
+      g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
       evals = self.recorder.get_measurement(HESSIAN_EIGENVALS, self.step)
       evecs = self.recorder.get_measurement(HESSIAN_EIGENVECS, self.step)
 
-      for i, alpha in enumerate(evals):
-        tf.logging.info('.. eigenvalue {}: {}'.format(i, alpha))
-        evec = evecs[:, i]
-        interp = self._interpolate_in_direction(-evec, 1. / alpha)
+      g_dot_e = np.einsum('i,ij', g, evecs)
+
+      for i in range(len(evals)):
+        tf.logging.info('.. eigenvalue {}: {}'.format(i, evals[i]))
+
+        # Vector is oriented uphill in quadratic approximation
+        uphill_evec = evecs[:, i] * np.sign(g_dot_e[i])
+
+        # Distance to minimum in quadratic approximation ('Newton step')
+        dist_to_min = np.abs(g_dot_e[i]) / evals[i]
+        steps = dist_to_min * np.linspace(start=-2, stop=1, num=20)
+
+        interp = self._interpolate_in_direction(uphill_evec, steps)
         self.recorder.record_tensor(
             'interpolation/loss_in_evec_dir_{}'.format(i),
             interp, self.step)
 
-  def _interpolate_in_direction(self, vec, step_size):
-    """Interpolate the loss in the given direction."""
+  def _interpolate_in_direction(self, vec, steps):
+    """Interpolate the loss in the given direction.
+
+    Args:
+        vec: Direction to move weights in.
+        steps: Array of coefficients to multiply vector by.
+
+    Returns:
+        Array of [steps, losses], where the loss is evaluated at each step along
+        the vec direction.
+    """
     # Make all vector manipulations on CPU so we don't run out of memory
     with tf.device("/cpu:0"):
       orig_weights = self.model.get_weights()
       flat_orig_weights = tfutils.flatten_tensor_list(orig_weights)
-
-      steps = step_size * np.linspace(-1, 2, num=10)
       losses = []
 
       for alpha in steps:

@@ -113,6 +113,10 @@ flags.DEFINE_string(
     'hessian', None,
     'Compute a partial Hessian spectrum at given frequency '
     ' (e.g. "1", "2epochs", "10steps")')
+flags.DEFINE_string(
+    'last_layer_hessian', None,
+    'Compute a partial Hessian spectrum, for the last layer weights, '
+    ' at given frequency (e.g. "1", "2epochs", "10steps")')
 flags.DEFINE_integer('hessian_num_evs', 10,
                      'How many Hessian eigenvalues to measure')
 flags.DEFINE_integer('hessian_batch_size', 2048,
@@ -281,6 +285,10 @@ def init_flags():
 
   if xFLAGS.gradients is None:
     if xFLAGS.hessian is not None:
+      tf.logging.error('Must specify --gradients with --hessian')
+      sys.exit(1)
+
+    if xFLAGS.last_layer_hessian is not None:
       tf.logging.error('Must specify --gradients with --hessian')
       sys.exit(1)
 
@@ -512,6 +520,29 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
         log_dir=xFLAGS.runlogdir)
     callbacks.append(hess_cb)
 
+  if xFLAGS.last_layer_hessian is not None:
+    freq = meas.Frequency.from_string(xFLAGS.last_layer_hessian)
+    if xFLAGS.use_bias:
+      weights = model.trainable_weights[-2:]
+    else:
+      weights = model.trainable_weights[-1:]
+    num_weights = tfutils.num_weights(weights)
+    grad_subvec = lambda g: g[-num_weights:]
+    ll_hess_cb = meas.LanczosHessianMeasurement(
+        recorder,
+        model,
+        freq,
+        xFLAGS.hessian_num_evs,
+        x_train,
+        y_train,
+        xFLAGS.hessian_batch_size,
+        lr=xFLAGS.lr,
+        log_dir=xFLAGS.runlogdir,
+        weights=weights,
+        grad_subvec=grad_subvec,
+        name='last_layer')
+    callbacks.append(ll_hess_cb)
+
   if xFLAGS.full_hessian is not None:
     train_batches, test_batches = get_batch_makers(
         xFLAGS.full_hessian_batch_size)
@@ -635,6 +666,8 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
         for callback in callbacks:
           callback.on_batch_begin(step)
 
+        # TODO This is slow. Connect the dataset tensor to
+        # the model input.
         (x_batch, y_batch) = sess.run(next_batch)
         feed = tfutils.keras_feed_dict(
             model,
