@@ -160,6 +160,8 @@ class ExtendedFlags:
 
     runtime.
   """
+  def __init__(self):
+    self.additional_flags = {}
 
   def __getattr__(self, name):
     """Gets called if the object does not contain the requested attribute.
@@ -176,6 +178,8 @@ class ExtendedFlags:
             value: The flag value.
     """
     setattr(self, flag, value)
+    self.additional_flags[flag] = value
+    print('additional: {}: {}'.format(flag, value))
 
 
 xFLAGS = ExtendedFlags()
@@ -318,10 +322,8 @@ def init_randomness():
   MAXINT32 = 2**31 - 1
   if xFLAGS.seed is None:
     random.seed()
-    seed = random.randint(0, MAXINT32)
-  else:
-    seed = xFLAGS.seed
-  random.seed(seed)
+    xFLAGS.set('seed', random.randint(0, MAXINT32))
+  random.seed(xFLAGS.seed)
   np.random.seed(random.randint(0, MAXINT32))
   tf.set_random_seed(random.randint(0, MAXINT32))
 
@@ -702,7 +704,9 @@ def main(argv):
 
   init_logging()
 
-  tbutils.save_run_flags(xFLAGS.runlogdir)
+  tbutils.save_run_flags(
+    xFLAGS.runlogdir,
+    additional_flags=xFLAGS.additional_flags)
 
   if is_regression():
     model.compile(
