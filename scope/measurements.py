@@ -24,6 +24,8 @@ FULL_BATCH_HG = 'full_batch_Hg'
 HESSIAN_EIGENVECS = 'H_evecs'
 HESSIAN_EIGENVALS = 'H_evals'
 
+LAST_LAYER = 'last_layer'
+
 
 def _overlap(vec1, vec2):
   """Compute the normalized overlap between two NumPy vectors"""
@@ -607,12 +609,33 @@ class LossInterpolationMeasurement(Measurement):
     self.test_batches = test_batches
 
   def measure(self, logs=None):
-    if (self.recorder.is_recorded(HESSIAN_EIGENVECS, self.step) and
+    self._measure_loss()
+    self._measure_loss(LAST_LAYER)
+
+  def _measure_loss(self, name=None):
+    # TODO this is a hack: handle different layer measurements systematically,
+    # without hard-coding things like 'last_layer' and the fact the keys
+    # are computed by combining with slashes. Maybe make better use of the
+    # 'directory structure' we have of measurements.
+    if name is None:
+      key_prefix = ''
+    else:
+      key_prefix = name + '/'
+
+    if (self.recorder.is_recorded(key_prefix + HESSIAN_EIGENVECS, self.step) and
         self.recorder.is_recorded(FULL_BATCH_G, self.step)):
-      tf.logging.info('Interpolating loss in Hessian eigenvector directions ...')
+      tf.logging.info(
+        '{} Interpolating loss in Hessian eigenvector directions ...'.format(
+          key_prefix))
+
+      evals = self.recorder.get_measurement(
+        key_prefix + HESSIAN_EIGENVALS, self.step)
+      evecs = self.recorder.get_measurement(
+        key_prefix + HESSIAN_EIGENVECS, self.step)
+
+      # TODO here we're assuming that Hessian is computed in the last layer only
       g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
-      evals = self.recorder.get_measurement(HESSIAN_EIGENVALS, self.step)
-      evecs = self.recorder.get_measurement(HESSIAN_EIGENVECS, self.step)
+      g = g[-evecs.shape[0]:]
 
       g_dot_e = np.einsum('i,ij', g, evecs)
 
@@ -628,7 +651,7 @@ class LossInterpolationMeasurement(Measurement):
 
         interp = self._interpolate_in_direction(uphill_evec, steps)
         self.recorder.record_tensor(
-            'interpolation/loss_in_evec_dir_{}'.format(i),
+            'interpolation/{}loss_in_evec_dir/{}'.format(key_prefix, i),
             interp, self.step)
 
   def _interpolate_in_direction(self, vec, steps):
@@ -648,8 +671,12 @@ class LossInterpolationMeasurement(Measurement):
       flat_orig_weights = tfutils.flatten_tensor_list(orig_weights)
       losses = []
 
+      # TODO Again assuming that computing last-layer vectors
+      expanded_vec = np.zeros(flat_orig_weights.shape)
+      expanded_vec[-vec.shape[0]:] = vec
+
       for alpha in steps:
-        target_weights = flat_orig_weights + alpha * vec
+        target_weights = flat_orig_weights + alpha * expanded_vec
         unflatten_target_weights = K.get_session().run(
             tfutils.unflatten_tensor_list(
                 target_weights,

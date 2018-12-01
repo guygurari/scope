@@ -542,7 +542,7 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
         log_dir=xFLAGS.runlogdir,
         weights=weights,
         grad_subvec=grad_subvec,
-        name='last_layer')
+        name=meas.LAST_LAYER)
     callbacks.append(ll_hess_cb)
 
   if xFLAGS.full_hessian is not None:
