@@ -179,7 +179,6 @@ class ExtendedFlags:
     """
     setattr(self, flag, value)
     self.additional_flags[flag] = value
-    print('additional: {}: {}'.format(flag, value))
 
 
 xFLAGS = ExtendedFlags()

@@ -23,6 +23,8 @@ FULL_BATCH_G = 'full_batch_g'
 FULL_BATCH_HG = 'full_batch_Hg'
 HESSIAN_EIGENVECS = 'H_evecs'
 HESSIAN_EIGENVALS = 'H_evals'
+HESS_GRAD_OVERLAP = 'hessian_gradient/gradient_overlap'
+HESS_GRAD_EVAL = 'hessian_gradient/eigenvalue'
 
 LAST_LAYER = 'last_layer'
 
@@ -434,9 +436,9 @@ class GradientMeasurement(Measurement):
     if prnt:
       tf.logging.info('Hg_eigenvalue ={}\tHg_g_overlap ={}'.format(
           Hg_eigenvalue, Hg_g_overlap))
-    self.record_scalar(prefix + 'hessian_gradient/gradient_overlap',
+    self.record_scalar(prefix + HESS_GRAD_OVERLAP,
                       Hg_g_overlap)
-    self.record_scalar(prefix + 'hessian_gradient/eigenvalue', Hg_eigenvalue)
+    self.record_scalar(prefix + HESS_GRAD_EVAL, Hg_eigenvalue)
     return Hg
 
   def _compute_Hrand(self, batches, logs, prefix, prnt):
@@ -609,10 +611,28 @@ class LossInterpolationMeasurement(Measurement):
     self.test_batches = test_batches
 
   def measure(self, logs=None):
-    self._measure_loss()
-    self._measure_loss(LAST_LAYER)
+    tf.logging.info('Loss interpolation ...')
+    self._measure_gradient_loss()
+    self._measure_hessian_evec_loss()
+    self._measure_hessian_evec_loss(LAST_LAYER)
 
-  def _measure_loss(self, name=None):
+  def _measure_gradient_loss(self):
+    """Measure the loss in the gradient direction. The scale is set by
+    the effective Hessian eigenvalue."""
+    if self.recorder.is_recorded(FULL_BATCH_G, self.step):
+      tf.logging.info('Interpolating loss in gradient direction ...')
+      g = self.recorder.get_measurement(FULL_BATCH_G, self.step)
+      g_norm = np.linalg.norm(g)
+      effective_eval = self.recorder.get_measurement(
+          HESS_GRAD_EVAL, self.step)
+      dist_to_min = np.linalg.norm(g) / effective_eval
+      steps = dist_to_min * np.linspace(start=-2, stop=1, num=20)
+      interp = self._interpolate_in_direction(g / g_norm, steps)
+      self.recorder.record_tensor(
+          'interpolation/loss_in_g_dir',
+          interp, self.step)
+
+  def _measure_hessian_evec_loss(self, name=None):
     # TODO this is a hack: handle different layer measurements systematically,
     # without hard-coding things like 'last_layer' and the fact the keys
     # are computed by combining with slashes. Maybe make better use of the
@@ -640,7 +660,8 @@ class LossInterpolationMeasurement(Measurement):
       g_dot_e = np.einsum('i,ij', g, evecs)
 
       for i in range(len(evals)):
-        tf.logging.info('.. eigenvalue {}: {}'.format(i, evals[i]))
+        order = len(evals) - i
+        tf.logging.info('.. eigenvalue {}: {}'.format(order, evals[i]))
 
         # Vector is oriented uphill in quadratic approximation
         uphill_evec = evecs[:, i] * np.sign(g_dot_e[i])
@@ -651,7 +672,7 @@ class LossInterpolationMeasurement(Measurement):
 
         interp = self._interpolate_in_direction(uphill_evec, steps)
         self.recorder.record_tensor(
-            'interpolation/{}loss_in_evec_dir/{}'.format(key_prefix, i),
+            'interpolation/{}loss_in_evec_dir/{}'.format(key_prefix, order),
             interp, self.step)
 
   def _interpolate_in_direction(self, vec, steps):
