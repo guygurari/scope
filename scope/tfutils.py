@@ -7,6 +7,7 @@ from __future__ import print_function
 import sys
 import numpy as np
 import tensorflow as tf
+import keras
 import keras.backend as K
 from time import time
 import scope.lanczos as lanczos
@@ -148,6 +149,34 @@ def keras_compute_tensors(model, x, y, tensors, feed_dict={}):
   """Compute the given tensors in Keras."""
   new_feed_dict = keras_feed_dict(model, x, y, feed_dict)
   return K.get_session().run(tensors, feed_dict=new_feed_dict)
+
+
+def clone_keras_model_shared_weights(
+    model, input_tensor, target_tensor):
+  """Clone a Keras model.
+  
+  The new model shares its weights with the old model, but accepts different
+  inputs and targets. This is useful, for example, for evaluating a model
+  mid-training.
+
+  Args:
+      model: A compiled Keras model.
+      input_tensor: Tensor to use as input for the cloned model.
+      target_tensor: Tensor to be used as targets (labels) for the cloned model.
+
+  Returns:
+      The cloned Keras model.
+  """
+  inputs = keras.layers.Input(tensor=input_tensor)
+  clone = keras.Model(
+    inputs=inputs,
+    outputs=model(input_tensor))
+  clone.compile(
+      loss=model.loss,
+      target_tensors=target_tensor,
+      optimizer=model.optimizer,
+      metrics=model.metrics)
+  return clone
 
 
 def flatten_tensor_list(tensors):
