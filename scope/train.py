@@ -62,6 +62,8 @@ flags.DEFINE_boolean('batch_norm', False, 'Use batch normalization')
 flags.DEFINE_float('lr', 0.1, 'Learning rate')
 flags.DEFINE_float('lr_decay', 1,
                    'Multiply the learning rate by this after every epoch ')
+flags.DEFINE_float('batch_resample_probability', 1,
+                   'Probability of sampling a new mini-batch at each step')
 
 flags.DEFINE_boolean('adam', False, 'Use Adam optimizer')
 # flags.DEFINE_boolean('projected_gd', False, 'Use Projected Gradient Descent')
@@ -148,7 +150,7 @@ flags.DEFINE_boolean('measure_gaussians_every_step', False,
 
 flags.DEFINE_boolean('show_progress_bar', False,
                      'Show progress bar during training')
-flags.DEFINE_integer('gpu', 0, 'Which GPU to use')
+flags.DEFINE_string('gpu', '0', 'Which GPU to use')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
 flags.DEFINE_boolean('keras_training_loop', False,
@@ -222,6 +224,8 @@ def run_name():  # pylint: disable=too-many-branches
   nice_lr = ('%f' % xFLAGS.lr).rstrip('0')
   name += '-lr{}'.format(nice_lr)
   name += '-batch{}'.format(xFLAGS.batch_size)
+  if xFLAGS.batch_resample_probability < 1:
+    name += '-bresamp{}'.format(xFLAGS.batch_resample_probability)
   name += '-{}'.format(RUN_TIMESTAMP)
   if name.startswith('-'):
     name = name[1:]
@@ -314,6 +318,12 @@ def init_flags():
     xFLAGS.set('l2_regularizer', None)
   else:
     xFLAGS.set('l2_regularizer', keras.regularizers.l2(xFLAGS.l2))
+
+  if xFLAGS.keras_training_loop:
+    if xFLAGS.batch_resample_probability != 1:
+      tf.logging.error('Must not specify --keras_training_loop with '
+                       '--batch_resample_probability')
+      sys.exit(1)
 
 
 def init_randomness():
@@ -631,6 +641,7 @@ def init_logging():
   tf.logging.info('Available devices: {}'.format(devices))
 
 
+
 def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
              callbacks):
   """TensorFlow training loop."""
@@ -656,12 +667,16 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
   for callback in callbacks:
     callback.set_model(model)
 
+  def should_resample_batch():
+    return np.random.sample() < xFLAGS.batch_resample_probability
+
   for epoch in range(FLAGS.epochs):
     tf.logging.info('epoch = {}'.format(epoch))
     for callback in callbacks:
       callback.on_epoch_begin(epoch)
 
     sess.run(iterator_init_op)
+    (x_batch, y_batch) = sess.run(next_batch)
     try:
       while True:
         for callback in callbacks:
@@ -669,7 +684,6 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
 
         # TODO This is slow. Connect the dataset tensor to
         # the model input.
-        (x_batch, y_batch) = sess.run(next_batch)
         feed = tfutils.keras_feed_dict(
             model,
             x_batch,
@@ -680,6 +694,9 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
         for callback in callbacks:
           callback.on_batch_end(step)
         step += 1
+
+        if should_resample_batch():
+          (x_batch, y_batch) = sess.run(next_batch)
     except tf.errors.OutOfRangeError:
       pass
 
