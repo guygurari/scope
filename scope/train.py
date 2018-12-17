@@ -9,6 +9,7 @@ from __future__ import division
 from __future__ import print_function
 
 import h5py
+import uuid
 import os
 import sys
 import random
@@ -54,6 +55,9 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('summary_dir', 'logs', 'Base summary and logs directory')
 flags.DEFINE_string('name', '', 'Experiment name')
+flags.DEFINE_string('load_weights', None,
+                    'Load the model weights from the given path and use it as '
+                    'a starting point')
 flags.DEFINE_string('dataset', 'mnist',
                     'Dataset: mnist, mnist_eo, cifar10, sine, or gaussians')
 flags.DEFINE_float('image_resize', 1, 'Resize images by given factor')
@@ -189,10 +193,9 @@ xFLAGS = ExtendedFlags()
 def run_name():  # pylint: disable=too-many-branches
   """Returns the experiment name."""
   name = xFLAGS.name
-
   name += '-' + xFLAGS.dataset
-
   name += '-' + xFLAGS.activation
+
   if xFLAGS.fc is None:
     name += '-cnn'
   else:
@@ -226,7 +229,7 @@ def run_name():  # pylint: disable=too-many-branches
   name += '-batch{}'.format(xFLAGS.batch_size)
   if xFLAGS.batch_resample_probability < 1:
     name += '-bresamp{}'.format(xFLAGS.batch_resample_probability)
-  name += '-{}'.format(RUN_TIMESTAMP)
+  name += '-{}-{}'.format(RUN_TIMESTAMP, xFLAGS.runid)
   if name.startswith('-'):
     name = name[1:]
   return name
@@ -324,6 +327,8 @@ def init_flags():
       tf.logging.error('Must not specify --keras_training_loop with '
                        '--batch_resample_probability')
       sys.exit(1)
+
+  xFLAGS.set('runid', uuid.uuid4().hex)
 
 
 def init_randomness():
@@ -473,15 +478,19 @@ def get_dataset():
 def get_model(input_shape):
   """Returns the Keras model for training."""
   if is_regression():
-    return models.regression_fc_model(xFLAGS, xFLAGS.output_dim)
+    model = models.regression_fc_model(xFLAGS, xFLAGS.output_dim)
   elif xFLAGS.fc is not None:
-    return models.classification_fc_model(xFLAGS, input_shape,
+    model = models.classification_fc_model(xFLAGS, input_shape,
                                           xFLAGS.num_classes)
   elif xFLAGS.small_cnn:
-    return models.classification_small_convnet_model(xFLAGS, input_shape,
-                                                     xFLAGS.num_classes)
-  return models.classification_convnet_model(xFLAGS, input_shape,
-                                             xFLAGS.num_classes)
+    model = models.classification_small_convnet_model(
+        xFLAGS, input_shape, xFLAGS.num_classes)
+  else:
+    model = models.classification_convnet_model(
+        xFLAGS, input_shape, xFLAGS.num_classes)
+  return model
+
+
 
 
 def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
@@ -585,20 +594,37 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
     callbacks.append(gauss_cb)
 
 
-def save_model(model):
-  """Save the model weights."""
+def save_model_weights(model):
+  """Save the model."""
   save_dir = xFLAGS.runlogdir + '/saved_models'
   tf.gfile.MakeDirs(save_dir)
-  model_filename = '{}-trained-model.h5'.format(run_name())
-  model_path = os.path.join(save_dir, model_filename)
+  model_filename = '{}-model-weights.h5'.format(xFLAGS.runid)
+  model_weights_path = os.path.join(save_dir, model_filename)
 
   # TODO when h5py 2.9.0 is available, we can create the h5py.File
   #      using a tf.gfile.GFile object and skip the temp file.
-  tmp_model_path = os.path.join(tempfile.gettempdir(), model_filename)
-  model.save(tmp_model_path)
-  tf.gfile.Copy(tmp_model_path, model_path)
-  tf.gfile.Remove(tmp_model_path)
-  tf.logging.info('Saved trained model at {} '.format(model_path))
+  tmp_model_weights_path = os.path.join(tempfile.gettempdir(), model_filename)
+  # model.save(tmp_model_weights_path)
+  model.save_weights(tmp_model_weights_path)
+  tf.gfile.Copy(tmp_model_weights_path, model_weights_path)
+  tf.gfile.Remove(tmp_model_weights_path)
+  tf.logging.info('Saved trained model at {} '.format(model_weights_path))
+
+
+def load_model_weights(model_weights_path, model):
+  """Load the model weights from the given file.
+
+  Args:
+    model_weights_path: Path to model weights file.
+    model: An initialized Keras Model.
+  """
+  tf.logging.info('Loading model weights from {}'.format(model_weights_path))
+  tmp_model_weights_path = os.path.join(
+      tempfile.gettempdir(), 'model-weights.h5')
+  tf.gfile.Copy(model_weights_path, tmp_model_weights_path)
+  # return keras.models.load_model(tmp_model_weights_path)
+  model.load_weights(tmp_model_weights_path)
+  tf.gfile.Remove(tmp_model_weights_path)
 
 
 def get_optimizer():
@@ -664,6 +690,15 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
   sess.run(tf.global_variables_initializer())
   step = 0
 
+  if xFLAGS.load_weights is not None:
+    # Load the model weights instead of the whole model, because Keras
+    # has a bug saving/loading models that use InputLayer.
+    # https://github.com/keras-team/keras/issues/10417
+    #
+    # Only load the weights after calling the global variables initializer,
+    # otherwise the loaded weights get overwritten.
+    load_model_weights(xFLAGS.load_weights, model)
+
   for callback in callbacks:
     callback.set_model(model)
 
@@ -683,7 +718,7 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
           callback.on_batch_begin(step)
 
         # TODO This is slow. Connect the dataset tensor to
-        # the model input.
+        # the model input to make it faster.
         feed = tfutils.keras_feed_dict(
             model,
             x_batch,
@@ -767,7 +802,7 @@ def main(argv):
     recorder.close()
   tf.logging.info('Done training!')
 
-  save_model(model)
+  save_model_weights(model)
 
   # Score trained model.
   scores = model.evaluate(x_test, y_test, verbose=xFLAGS.show_progress_bar)
