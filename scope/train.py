@@ -98,7 +98,9 @@ flags.DEFINE_float('l2', None, 'L2 weight regularization')
 flags.DEFINE_integer('samples', -1, 'Numbers of training samples (-1 for all)')
 flags.DEFINE_integer('val_samples', -1,
                      'Numbers of validation samples (-1 for all)')
-flags.DEFINE_integer('epochs', 1000, 'Number of epochs')
+flags.DEFINE_integer('epochs', 1000, 'Number of training epochs')
+flags.DEFINE_integer('steps', None,
+                     'Number of training steps (overrides --epochs)')
 flags.DEFINE_integer('batch_size', 64, 'Batch size (-1 for all)')
 flags.DEFINE_boolean('summaries', True, 'Save tensorboard-style summaries')
 flags.DEFINE_integer(
@@ -159,6 +161,9 @@ flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
 flags.DEFINE_boolean('keras_training_loop', False,
                      'Use Keras training loop (instead of TF training loop)')
+flags.DEFINE_boolean('save_final_weights_vector', False,
+                     'Save the final trained weights vector as a '
+                     'flat vector summary')
 
 
 class ExtendedFlags:
@@ -324,8 +329,12 @@ def init_flags():
 
   if xFLAGS.keras_training_loop:
     if xFLAGS.batch_resample_probability != 1:
-      tf.logging.error('Must not specify --keras_training_loop with '
+      tf.logging.error('Cannot specify --keras_training_loop with '
                        '--batch_resample_probability')
+      sys.exit(1)
+    if xFLAGS.steps is not None:
+      tf.logging.error('Cannot specify --keras_training_loop with '
+                       '--steps')
       sys.exit(1)
 
   xFLAGS.set('runid', uuid.uuid4().hex)
@@ -689,6 +698,7 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
 
   sess.run(tf.global_variables_initializer())
   step = 0
+  epoch = 0
 
   if xFLAGS.load_weights is not None:
     # Load the model weights instead of the whole model, because Keras
@@ -705,15 +715,29 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
   def should_resample_batch():
     return np.random.sample() < xFLAGS.batch_resample_probability
 
-  for epoch in range(FLAGS.epochs):
-    tf.logging.info('epoch = {}'.format(epoch))
+  def counting_epochs():
+    return xFLAGS.steps is None
+
+  def should_train_next_epoch():
+    if counting_epochs():
+      return epoch < xFLAGS.epochs
+    else:
+      return should_train_next_step()
+
+  def should_train_next_step():
+    if counting_epochs():
+      return True
+    else:
+      return step < xFLAGS.steps
+
+  while should_train_next_epoch():
     for callback in callbacks:
       callback.on_epoch_begin(epoch)
 
     sess.run(iterator_init_op)
     (x_batch, y_batch) = sess.run(next_batch)
     try:
-      while True:
+      while should_train_next_step():
         for callback in callbacks:
           callback.on_batch_begin(step)
 
@@ -733,10 +757,9 @@ def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
         if should_resample_batch():
           (x_batch, y_batch) = sess.run(next_batch)
     except tf.errors.OutOfRangeError:
-      pass
-
-    for callback in callbacks:
-      callback.on_epoch_end(epoch)
+      for callback in callbacks:
+        callback.on_epoch_end(epoch)
+      epoch += 1
 
 
 def main(argv):
@@ -798,8 +821,14 @@ def main(argv):
     tf_train(x_train, y_train, x_test, y_test, model,
              tf_opt, recorder, callbacks)
 
+  if xFLAGS.save_final_weights_vector:
+    weights = model.get_weights()
+    flat_weights = np.concatenate([np.reshape(t, [-1]) for t in weights])
+    recorder.record_tensor('final_weights', flat_weights, step=-1)
+
   if xFLAGS.summaries:
     recorder.close()
+
   tf.logging.info('Done training!')
 
   save_model_weights(model)

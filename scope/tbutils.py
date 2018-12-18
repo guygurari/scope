@@ -67,8 +67,7 @@ gs: If False (default), only load the main module's flags. If True, load all
 
 class EventLoader:
   """Reads scalar and tensor events written in TensorBoard format and
-
-    converts them to DataFrames for easy analysis.
+    converts them to DataFrames.
   """
 
   def __init__(self, logdir):
