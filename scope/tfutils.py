@@ -115,6 +115,34 @@ class MiniBatchMaker:
     return self.i == 0
 
 
+def create_iid_batch_generator(x, y, steps, batch_size, resample_prob=1):
+  """Returns an IID mini-batch generator.
+
+  ds = Dataset.from_generator(
+    create_iid_batch_generator(x, y, batch_size), ...)
+
+  Args:
+    x: Input samples
+    y: Labels
+    steps: How many steps to run for
+    batch_size: Integer size of mini-batch
+    resample_prob: Probability of resampling a given sample at each step
+  """
+  N = len(x)
+  
+  def gen():
+    samples = np.random.choice(N, batch_size, replace=True)
+    
+    for step in range(steps):
+      yield (x[samples], y[samples])
+
+      to_replace = np.random.random((batch_size,)) < resample_prob
+      new_samples = np.random.choice(N, to_replace.sum(), replace=True)
+      samples[to_replace] = new_samples
+
+  return gen
+  
+
 def _AsList(x):
   return x if isinstance(x, (list, tuple)) else [x]
 

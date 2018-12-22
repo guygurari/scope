@@ -73,8 +73,9 @@ flags.DEFINE_boolean('batch_norm', False, 'Use batch normalization')
 flags.DEFINE_float('lr', 0.1, 'Learning rate')
 flags.DEFINE_float('lr_decay', 1,
                    'Multiply the learning rate by this after every epoch ')
-flags.DEFINE_float('batch_resample_probability', 1,
-                   'Probability of sampling a new mini-batch at each step')
+flags.DEFINE_float('resample_prob', 1,
+                   'Probability each sample being replaced at each step. '
+                   'Must be specified with --iid_batches.')
 
 flags.DEFINE_boolean('adam', False, 'Use Adam optimizer')
 # flags.DEFINE_boolean('projected_gd', False, 'Use Projected Gradient Descent')
@@ -109,6 +110,9 @@ flags.DEFINE_integer('epochs', 1000, 'Number of training epochs')
 flags.DEFINE_integer('steps', None,
                      'Number of training steps (overrides --epochs)')
 flags.DEFINE_integer('batch_size', 64, 'Batch size (-1 for all)')
+flags.DEFINE_boolean('iid_batches', False,
+                     'Sample fully IID batches at each time step '
+                     '(allowing replacement)')
 flags.DEFINE_boolean('summaries', True, 'Save tensorboard-style summaries')
 flags.DEFINE_integer(
     'measure_batch_size', 2048,
@@ -250,9 +254,11 @@ def run_name():  # pylint: disable=too-many-branches
     name += '-L2reg{}'.format(nice_l2)
   nice_lr = ('%f' % xFLAGS.lr).rstrip('0')
   name += '-lr{}'.format(nice_lr)
+  if xFLAGS.iid_batches:
+    name += '-iid'
   name += '-batch{}'.format(xFLAGS.batch_size)
-  if xFLAGS.batch_resample_probability < 1:
-    name += '-bresamp{}'.format(xFLAGS.batch_resample_probability)
+  if xFLAGS.resample_prob < 1:
+    name += '-resamp{}'.format(xFLAGS.resample_prob)
   name += '-{}-{}'.format(RUN_TIMESTAMP, xFLAGS.uid)
   if name.startswith('-'):
     name = name[1:]
@@ -347,14 +353,26 @@ def init_flags():
     xFLAGS.set('l2_regularizer', keras.regularizers.l2(xFLAGS.l2))
 
   if xFLAGS.keras_training_loop:
-    if xFLAGS.batch_resample_probability != 1:
+    if xFLAGS.batch_resample_prob != 1:
       tf.logging.error('Cannot specify --keras_training_loop with '
-                       '--batch_resample_probability')
+                       '--batch_resample_prob')
       sys.exit(1)
     if xFLAGS.steps is not None:
       tf.logging.error('Cannot specify --keras_training_loop with '
                        '--steps')
       sys.exit(1)
+    if xFLAGS.iid_batches:
+      tf.logging.error('Cannot specify --keras_training_loop with '
+                       '--iid_batches')
+      sys.exit(1)
+
+  if xFLAGS.iid_batches and xFLAGS.steps is None:
+    tf.logging.error('Must specify --steps with --iid_batches')
+    sys.exit(1)
+
+  if xFLAGS.resample_prob < 1 and not xFLAGS.iid_batches:
+    tf.logging.error('Must specify --iid_batches with --resample_prob')
+    sys.exit(1)
 
   xFLAGS.set(UID_TAG, uuid.uuid4().hex)
 
@@ -699,18 +717,24 @@ def init_logging():
 
 def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
   """TensorFlow training loop."""
-  train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
-  train_ds = train_ds.shuffle(len(x_train))
-  train_ds = train_ds.batch(xFLAGS.batch_size)
+  if xFLAGS.iid_batches:
+    train_ds = tf.data.Dataset.from_generator(
+        tfutils.create_iid_batch_generator(
+            x_train, y_train, xFLAGS.steps, xFLAGS.batch_size),
+        (x_train.dtype, y_train.dtype))
+  else:
+    train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
+    train_ds = train_ds.shuffle(len(x_train))
+    train_ds = train_ds.batch(xFLAGS.batch_size)
 
   iterator = tf.data.Iterator.from_structure(train_ds.output_types,
-                                             train_ds.output_shapes)
+                                              train_ds.output_shapes)
   next_batch = iterator.get_next()
   iterator_init_op = iterator.make_initializer(train_ds)
 
   train_step = tf_opt.minimize(model.total_loss)
 
-  # TODO using the Keras session because it was created during model.compile()
+  # Using the Keras session because it was created during model.compile()
   sess = K.get_session()
   # sess = tf.Session()
   # K.set_session(sess)
@@ -730,9 +754,6 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
 
   for callback in callbacks:
     callback.set_model(model)
-
-  def should_resample_batch():
-    return np.random.sample() < xFLAGS.batch_resample_probability
 
   def counting_epochs():
     return xFLAGS.steps is None
@@ -773,8 +794,7 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
           callback.on_batch_end(step)
         step += 1
 
-        if should_resample_batch():
-          (x_batch, y_batch) = sess.run(next_batch)
+        (x_batch, y_batch) = sess.run(next_batch)
     except tf.errors.OutOfRangeError:
       for callback in callbacks:
         callback.on_epoch_end(epoch)
