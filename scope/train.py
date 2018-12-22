@@ -42,6 +42,7 @@ import scope.measurements as meas
 import scope.models as models
 import scope.tbutils as tbutils
 import scope.tfutils as tfutils
+from scope.experiment_defs import *
 
 colored_traceback.add_hook()
 
@@ -54,7 +55,13 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('summary_dir', 'logs', 'Base summary and logs directory')
-flags.DEFINE_string('name', '', 'Experiment name')
+flags.DEFINE_string(NAME_TAG, '', 'Experiment name')
+flags.DEFINE_integer('run_number', None,
+                     'Number of the current run within the experiment. '
+                     'An experiment can have multiple runs with the same '
+                     'parameters, for example when collecting statistics.')
+flags.DEFINE_integer('total_runs', None,
+                     'How many runs total are in the current experiment')
 flags.DEFINE_string('load_weights', None,
                     'Load the model weights from the given path and use it as '
                     'a starting point')
@@ -195,9 +202,21 @@ class ExtendedFlags:
 xFLAGS = ExtendedFlags()
 
 
+def get_padded_run_number():
+  if xFLAGS.total_runs is not None:
+    max_len = len(format(xFLAGS.total_runs))
+    return format(xFLAGS.run_number, '0' + str(max_len))
+  else:
+    return format(xFLAGS.run_number)
+
+
 def run_name():  # pylint: disable=too-many-branches
   """Returns the experiment name."""
   name = xFLAGS.name
+
+  if xFLAGS.run_number is not None:
+    name += '-' + get_padded_run_number()
+
   name += '-' + xFLAGS.dataset
   name += '-' + xFLAGS.activation
 
@@ -234,7 +253,7 @@ def run_name():  # pylint: disable=too-many-branches
   name += '-batch{}'.format(xFLAGS.batch_size)
   if xFLAGS.batch_resample_probability < 1:
     name += '-bresamp{}'.format(xFLAGS.batch_resample_probability)
-  name += '-{}-{}'.format(RUN_TIMESTAMP, xFLAGS.runid)
+  name += '-{}-{}'.format(RUN_TIMESTAMP, xFLAGS.uid)
   if name.startswith('-'):
     name = name[1:]
   return name
@@ -337,7 +356,7 @@ def init_flags():
                        '--steps')
       sys.exit(1)
 
-  xFLAGS.set('runid', uuid.uuid4().hex)
+  xFLAGS.set(UID_TAG, uuid.uuid4().hex)
 
 
 def init_randomness():
@@ -607,7 +626,7 @@ def save_model_weights(model):
   """Save the model."""
   save_dir = xFLAGS.runlogdir + '/saved_models'
   tf.gfile.MakeDirs(save_dir)
-  model_filename = '{}-model-weights.h5'.format(xFLAGS.runid)
+  model_filename = '{}-model-weights.h5'.format(xFLAGS.uid)
   model_weights_path = os.path.join(save_dir, model_filename)
 
   # TODO when h5py 2.9.0 is available, we can create the h5py.File
@@ -655,6 +674,7 @@ def get_optimizer():
 
 
 def init_logging():
+  xFLAGS.set(RUN_NAME_TAG, run_name())
   xFLAGS.set('runlogdir', '{}/{}'.format(xFLAGS.summary_dir, run_name()))
   tf.gfile.MakeDirs(xFLAGS.runlogdir)
   log = logging.getLogger('tensorflow')
@@ -677,8 +697,7 @@ def init_logging():
 
 
 
-def tf_train(x_train, y_train, x_test, y_test, model, tf_opt, recorder,
-             callbacks):
+def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
   """TensorFlow training loop."""
   train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
   train_ds = train_ds.shuffle(len(x_train))
@@ -818,8 +837,7 @@ def main(argv):
         callbacks=callbacks,
         verbose=xFLAGS.show_progress_bar)
   else:
-    tf_train(x_train, y_train, x_test, y_test, model,
-             tf_opt, recorder, callbacks)
+    tf_train(x_train, y_train, model, tf_opt, recorder, callbacks)
 
   if xFLAGS.save_final_weights_vector:
     weights = model.get_weights()

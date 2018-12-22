@@ -1,4 +1,6 @@
-"""TensorBoard utilities, for processing saved TensorFlow events."""
+"""TensorBoard utilities, for processing saved TensorFlow events.
+
+"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -8,11 +10,12 @@ import tensorboard.backend.event_processing.event_multiplexer as emux
 import tensorflow as tf
 import pandas as pd
 import json
+
 from absl import flags
 
+from scope.experiment_defs import *
+
 FLAGS_FILE = 'flags.json'
-STEP_TAG = 'step'
-WALL_TIME_TAG = 'wall_time'
 FLAGS = flags.FLAGS
 
 
@@ -54,9 +57,9 @@ def load_run_flags(run_logdir):
   """Load the experiment's flags.
 
     Args:
-        rundir: The run's log dir. full_fla
-gs: If False (default), only load the main module's flags. If True, load all
-  flags set by all modules.
+        rundir: The run's log dir.
+        full_flags: If False (default), only load the main module's flags.
+        If True, load all flags set by all modules.
 
     Returns:
         A dict containing the experiment's flags.
@@ -128,7 +131,7 @@ class EventLoader:
     if tags is None:
       run_tags = self.tags(run)
     else:
-      run_tags = tags
+      run_tags = list(tags)
 
     # Do not include 'step' tag because it's already the index,
     # and it messes up the DataFrame.
@@ -220,6 +223,10 @@ class ExperimentLoader:
     """
     return self.event_loader.tags(run)
 
+  def flags(self, run):
+    """Returns the flag dictionary for the given run."""
+    return self._flags[run]
+
   def events(self, runs=None, tags=None):
     """Returns a map of event data, mapping each run name to a DataFrame
 
@@ -244,13 +251,6 @@ class ExperimentLoader:
     """Returns the DataFrame of events for the given run."""
     return self.events(runs=[run], tags=tags)[run]
 
-  def _flags_match_criteria(self, run_flags, criteria):
-    """Returns whether the given flags dict matches the criteria dict."""
-    for flag, val in criteria.items():
-      if run_flags[flag] != val:
-        return False
-    return True
-
   def select(self, criteria):
     """Select experiments based on the given flag criteria.
 
@@ -263,12 +263,20 @@ class ExperimentLoader:
         """
     result = []
     for run in self.runs():
-      if self._flags_match_criteria(self.flags[run], criteria):
+      if self._flags_match_criteria(self.flags(run), criteria):
         result.append(run)
     return result
 
+  def _flags_match_criteria(self, run_flags, criteria):
+    """Returns whether the given flags dict matches the criteria dict."""
+    for flag, val in criteria.items():
+      if run_flags[flag] != val:
+        return False
+    return True
+
   def _load_flags(self):
     """Load the flag files of all experiments."""
-    self.flags = {}
+    self._flags = {}
     for run, path in self.event_loader.run_dirs().items():
-      self.flags[run] = load_run_flags(path)
+      self._flags[run] = load_run_flags(path)
+      self._flags[run][RUN_NAME_TAG] = run
