@@ -67,8 +67,10 @@ flags.DEFINE_integer('total_runs', None,
                      'How many runs total are in the current experiment')
 flags.DEFINE_float('delay_logging', None,
                    'Delay log messages going to file but this many seconds '
-                   'before flushing. Useful when writing to rate-limited '
-                   'storage.')
+                   'before flushing.')
+flags.DEFINE_boolean('log_to_file', True,
+                     'Log everything to file, in addition to stdout. '
+                     'If false, only log to stdout.')
 flags.DEFINE_string('load_weights', None,
                     'Load the model weights from the given path and use it as '
                     'a starting point')
@@ -742,15 +744,16 @@ def init_logging():
   log.addHandler(sh)
 
   # Handle writing to cloud storage
-  fh = logging.StreamHandler(
-      tf.gfile.GFile('{}/tensorflow.log'.format(xFLAGS.runlogdir), 'w'))
-  if xFLAGS.delay_logging is not None:
-    fh = DelayedLoggingHandler(
-      delay=xFLAGS.delay_logging,
-      capacity=10*1024,
-      flushLevel=logging.WARNING,
-      target=fh)
-  log.addHandler(fh)
+  if xFLAGS.log_to_file:
+    fh = logging.StreamHandler(
+        tf.gfile.GFile('{}/tensorflow.log'.format(xFLAGS.runlogdir), 'w'))
+    if xFLAGS.delay_logging is not None:
+        fh = DelayedLoggingHandler(
+        delay=xFLAGS.delay_logging,
+        capacity=10*1024,
+        flushLevel=logging.WARNING,
+        target=fh)
+    log.addHandler(fh)
 
   tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))
   tf.logging.info('Log dir: {}'.format(xFLAGS.runlogdir))
@@ -767,7 +770,8 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
   if xFLAGS.iid_batches:
     train_ds = tf.data.Dataset.from_generator(
         tfutils.create_iid_batch_generator(
-            x_train, y_train, xFLAGS.steps, xFLAGS.batch_size),
+          x_train, y_train, xFLAGS.steps,
+          xFLAGS.batch_size, xFLAGS.resample_prob),
         (x_train.dtype, y_train.dtype))
   else:
     train_ds = tf.data.Dataset.from_tensor_slices((x_train, y_train))
