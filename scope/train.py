@@ -14,8 +14,10 @@ import os
 import sys
 import random
 import logging
+import logging.handlers
 import datetime
 import tempfile
+import time
 
 # python2+3 compatibility
 try:
@@ -55,6 +57,7 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('summary_dir', 'logs', 'Base summary and logs directory')
+flags.DEFINE_string(UID_TAG, uuid.uuid4().hex, 'Unique run identifier')
 flags.DEFINE_string(NAME_TAG, '', 'Experiment name')
 flags.DEFINE_integer('run_number', None,
                      'Number of the current run within the experiment. '
@@ -62,6 +65,10 @@ flags.DEFINE_integer('run_number', None,
                      'parameters, for example when collecting statistics.')
 flags.DEFINE_integer('total_runs', None,
                      'How many runs total are in the current experiment')
+flags.DEFINE_float('delay_logging', None,
+                   'Delay log messages going to file but this many seconds '
+                   'before flushing. Useful when writing to rate-limited '
+                   'storage.')
 flags.DEFINE_string('load_weights', None,
                     'Load the model weights from the given path and use it as '
                     'a starting point')
@@ -374,8 +381,6 @@ def init_flags():
     tf.logging.error('Must specify --iid_batches with --resample_prob')
     sys.exit(1)
 
-  xFLAGS.set(UID_TAG, uuid.uuid4().hex)
-
 
 def init_randomness():
   """Seed the random number generators."""
@@ -668,9 +673,11 @@ def load_model_weights(model_weights_path, model):
   tmp_model_weights_path = os.path.join(
       tempfile.gettempdir(), 'model-weights.h5')
   tf.gfile.Copy(model_weights_path, tmp_model_weights_path)
-  # return keras.models.load_model(tmp_model_weights_path)
-  model.load_weights(tmp_model_weights_path)
-  tf.gfile.Remove(tmp_model_weights_path)
+  try:
+    # return keras.models.load_model(tmp_model_weights_path)
+    model.load_weights(tmp_model_weights_path)
+  finally:
+    tf.gfile.Remove(tmp_model_weights_path)
 
 
 def get_optimizer():
@@ -691,6 +698,40 @@ def get_optimizer():
   return keras_opt, tf_opt
 
 
+class DelayedLoggingHandler(logging.handlers.MemoryHandler):
+    """Buffers logging messages and flushes them after a certain delay.
+    One use case is writing logs to rate-limited storage.
+    """
+    def __init__(self, delay, capacity, flushLevel=logging.ERROR, target=None):
+        """Ctor.
+
+        Args:
+          delay: Seconds to buffer before flushing
+          capacity: Buffering capacity
+          flushLevel: Automatically flush messages at or above this level
+          target: Target logging handler to send records to
+        """
+        super(DelayedLoggingHandler, self).__init__(
+            capacity, flushLevel=flushLevel, target=target)
+        self.delay = delay
+        self.last_flushed = time.time()
+
+    def _delayPassed(self):
+        return time.time() > self.last_flushed + self.delay
+
+    def shouldFlush(self, record):
+        """Flush if parent says we should flush, or if enough time elapsed
+        since last flush."""
+        if super(logging.handlers.MemoryHandler, self).shouldFlush(record):
+            self.last_flushed = time.time()
+            return True
+        elif self._delayPassed():
+            self.last_flushed = time.time()
+            return True
+        else:
+            return False
+
+
 def init_logging():
   xFLAGS.set(RUN_NAME_TAG, run_name())
   xFLAGS.set('runlogdir', '{}/{}'.format(xFLAGS.summary_dir, run_name()))
@@ -703,6 +744,12 @@ def init_logging():
   # Handle writing to cloud storage
   fh = logging.StreamHandler(
       tf.gfile.GFile('{}/tensorflow.log'.format(xFLAGS.runlogdir), 'w'))
+  if xFLAGS.delay_logging is not None:
+    fh = DelayedLoggingHandler(
+      delay=xFLAGS.delay_logging,
+      capacity=10*1024,
+      flushLevel=logging.WARNING,
+      target=fh)
   log.addHandler(fh)
 
   tf.logging.info('Started: {}'.format(RUN_TIMESTAMP))

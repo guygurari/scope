@@ -259,7 +259,12 @@ class Experiments:
     """Returns whether the given function returns True on the given flags
     dict. If func is not a function, returns None."""
     try:
-      result = func(flags)
+      try:
+        result = func(flags)
+      except AttributeError:
+        print('Warning: select function raised exception for flags, skipping:')
+        print(flags)
+        return False
       if type(result) != bool:
         raise ValueError('Expecting boolean return value')
       elif result == False:
