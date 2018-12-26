@@ -182,16 +182,17 @@ class Experiments:
       args: List of string flags to group by.
 
     Returns:
-      An iterable over Experiments. Each element contains selected experiments
-      that share the same values for the flags in args.
+      A dict mapping flag values to their Experiments object. If only one flag
+      is grouped by, the key is the corresponding flag value. If multiple flags
+      are grouped by, the key is a tuple containing all the flag values.
     """
     grouped = self.flags().groupby(list(args))
-    results = []
+    results = {}
 
     for g in grouped:
       df = g[1]
       runs = df[RUN_NAME_TAG].values
-      results.append(self.subset(runs))
+      results[g[0]] = self.subset(runs)
 
     return results
 
