@@ -99,14 +99,15 @@ flags.DEFINE_integer(
     'overparam', 0, 'Overparameterize the dense layers by adding '
     'N linear layers')
 flags.DEFINE_string(
-    'fc', None, 'Use a fully-connected network instead of a CNN, with '
+    'fc', None, 'Use a fully-connected network, with '
     'hidden layer widths given by comma-separated WIDTHS '
     '(e.g. 100,100). Can also say \'none\' to have '
     'no hidden layers.')
-flags.DEFINE_boolean('use_bias', True, 'Use bias in dense layers in FC nets')
+flags.DEFINE_boolean('cnn', False, 'Use a convnet architecture')
 flags.DEFINE_integer('cnn_last_layer', 256,
                      'Width of the last dense layer in the CNN')
 flags.DEFINE_boolean('small_cnn', False, 'Create a small CNN')
+flags.DEFINE_boolean('use_bias', True, 'Use bias in dense layers in FC nets')
 flags.DEFINE_string(
     'activation', 'relu',
     'The non-linear activation, can be relu, tanh, softplus,'
@@ -177,6 +178,7 @@ flags.DEFINE_boolean('measure_gaussians_every_step', False,
 flags.DEFINE_boolean('show_progress_bar', False,
                      'Show progress bar during training')
 flags.DEFINE_string('gpu', '0', 'Which GPU to use')
+flags.DEFINE_boolean('cpu', False, 'Use CPU instead of GPU')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
 flags.DEFINE_boolean('keras_training_loop', False,
@@ -317,33 +319,34 @@ def init_flags():
   """Validate and initialize some command line flags."""
   possible_sets = ('mnist', 'mnist_eo', 'cifar10', 'sine', 'gaussians')
 
-  if xFLAGS.dataset not in possible_sets:
-    tf.logging.info('Unsupported dataset {}. '
-                    'Supported datasets: mnist(_eo), '
-                    'sine, cifar10, gaussians'.format(xFLAGS.dataset))
+  def fatal(desc):
+    """Report a fatal error and quit."""
+    tf.logging.error(desc)
     sys.exit(1)
+
+  if xFLAGS.dataset not in possible_sets:
+    fatal('Unsupported dataset {}. '
+          'Supported datasets: mnist(_eo), '
+          'sine, cifar10, gaussians'.format(xFLAGS.dataset))
+
+  if xFLAGS.fc is None and not xFLAGS.cnn:
+    fatal('Must specify either --cnn or --fc')
 
   if is_regression():
     if xFLAGS.fc is None:
-      tf.logging.error('Must specify --fc when using regression')
-      sys.exit(1)
+      fatal('Must specify --fc when using regression')
     if xFLAGS.samples == ALL_SAMPLES or xFLAGS.val_samples == ALL_SAMPLES:
-      tf.logging.error('Must specify --samples and --val-samples '
-                       'when using regression')
-      sys.exit(1)
+      fatal('Must specify --samples and --val-samples when using regression')
 
   if xFLAGS.gradients is None:
     if xFLAGS.hessian is not None:
-      tf.logging.error('Must specify --gradients with --hessian')
-      sys.exit(1)
+      fatal('Must specify --gradients with --hessian')
 
     if xFLAGS.last_layer_hessian is not None:
-      tf.logging.error('Must specify --gradients with --hessian')
-      sys.exit(1)
+      fatal('Must specify --gradients with --hessian')
 
     if xFLAGS.full_hessian is not None:
-      tf.logging.error('Must specify --gradients with --full-hessian')
-      sys.exit(1)
+      fatal('Must specify --gradients with --full-hessian')
 
   if xFLAGS.adam:
     xFLAGS.set('optimizer_name', 'adam')
@@ -363,25 +366,17 @@ def init_flags():
 
   if xFLAGS.keras_training_loop:
     if xFLAGS.batch_resample_prob != 1:
-      tf.logging.error('Cannot specify --keras_training_loop with '
-                       '--batch_resample_prob')
-      sys.exit(1)
+      fatal('Cannot specify --keras_training_loop with --batch_resample_prob')
     if xFLAGS.steps is not None:
-      tf.logging.error('Cannot specify --keras_training_loop with '
-                       '--steps')
-      sys.exit(1)
+      fatal('Cannot specify --keras_training_loop with --steps')
     if xFLAGS.iid_batches:
-      tf.logging.error('Cannot specify --keras_training_loop with '
-                       '--iid_batches')
-      sys.exit(1)
+      fatal('Cannot specify --keras_training_loop with --iid_batches')
 
   if xFLAGS.iid_batches and xFLAGS.steps is None:
-    tf.logging.error('Must specify --steps with --iid_batches')
-    sys.exit(1)
+    fatal('Must specify --steps with --iid_batches')
 
   if xFLAGS.resample_prob < 1 and not xFLAGS.iid_batches:
-    tf.logging.error('Must specify --iid_batches with --resample_prob')
-    sys.exit(1)
+    fatal('Must specify --iid_batches with --resample_prob')
 
 
 def init_randomness():
@@ -853,13 +848,19 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
 
 
 def main(argv):
-  del argv  # unused
+  if len(argv) > 1:
+    print('Unrecognized parameters:', argv)
+    sys.exit(1)
+
   if xFLAGS.nothing:
     sys.exit(0)
   init_flags()
   init_randomness()
 
-  os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
+  if xFLAGS.cpu:
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+  else:
+    os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
 
   x_train, y_train, x_test, y_test = get_dataset()
   model = get_model(x_train.shape[1:])
