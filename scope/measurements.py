@@ -240,11 +240,13 @@ class BasicMetricsMeasurement(Measurement):
                freq,
                train_batches,
                test_batches,
+               lr_schedule=None,
                show_progress=False):
     super(BasicMetricsMeasurement, self).__init__(freq, recorder)
     self.timer = Timer()
     self.train_batches = train_batches
     self.test_batches = test_batches
+    self.lr_schedule = lr_schedule
     self.show_progress = show_progress
 
     # Find accuracy function, adapted from keras/training.py
@@ -271,6 +273,9 @@ class BasicMetricsMeasurement(Measurement):
     self.record_scalar('epoch', self.epoch)
     self.record_scalar('step', self.step)
     self.record_scalar('weight_norm', K.get_session().run(self.weight_norm))
+
+    if self.lr_schedule is not None:
+      self.record_scalar('lr', self.lr_schedule.lr())
 
     self._compute_metrics(self.train_batches, logs, prefix='')
     self._compute_metrics(self.test_batches, logs, prefix='val_')

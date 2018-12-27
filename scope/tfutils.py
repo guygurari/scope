@@ -126,7 +126,9 @@ def create_iid_batch_generator(x, y, steps, batch_size, resample_prob=1):
     y: Labels
     steps: How many steps to run for
     batch_size: Integer size of mini-batch
-    resample_prob: Probability of resampling a given sample at each step
+    resample_prob: Probability of resampling a given sample at each step.
+      If a function, the function should return the current resampling 
+      probability and will be called every time a batch is generated.
   """
   N = len(x)
   
@@ -136,7 +138,12 @@ def create_iid_batch_generator(x, y, steps, batch_size, resample_prob=1):
     for step in range(steps):
       yield (x[samples], y[samples])
 
-      to_replace = np.random.random((batch_size,)) < resample_prob
+      try:
+        current_resample_prob = resample_prob()
+      except TypeError:
+        current_resample_prob = resample_prob
+
+      to_replace = np.random.random((batch_size,)) < current_resample_prob
       new_samples = np.random.choice(N, to_replace.sum(), replace=True)
       samples[to_replace] = new_samples
 
