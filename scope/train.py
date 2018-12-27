@@ -79,7 +79,7 @@ flags.DEFINE_boolean('dropout', False, 'Use dropout')
 flags.DEFINE_boolean('batch_norm', False, 'Use batch normalization')
 flags.DEFINE_float('lr', 0.1, 'Learning rate')
 flags.DEFINE_float('lr_decay', 1,
-                   'Multiply the learning rate by this after every epoch ')
+                   'Multiply the learning rate by this after every epoch')
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
                    'Must be specified with --iid_batches.')
@@ -181,8 +181,6 @@ flags.DEFINE_string('gpu', '0', 'Which GPU to use')
 flags.DEFINE_boolean('cpu', False, 'Use CPU instead of GPU')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
-flags.DEFINE_boolean('keras_training_loop', False,
-                     'Use Keras training loop (instead of TF training loop)')
 flags.DEFINE_boolean('save_final_weights_vector', False,
                      'Save the final trained weights vector as a '
                      'flat vector summary')
@@ -365,14 +363,6 @@ def init_flags():
     xFLAGS.set('l2_regularizer', None)
   else:
     xFLAGS.set('l2_regularizer', keras.regularizers.l2(xFLAGS.l2))
-
-  if xFLAGS.keras_training_loop:
-    if xFLAGS.batch_resample_prob != 1:
-      fatal('Cannot specify --keras_training_loop with --batch_resample_prob')
-    if xFLAGS.steps is not None:
-      fatal('Cannot specify --keras_training_loop with --steps')
-    if xFLAGS.iid_batches:
-      fatal('Cannot specify --keras_training_loop with --iid_batches')
 
   if xFLAGS.iid_batches and xFLAGS.steps is None:
     fatal('Must specify --steps with --iid_batches')
@@ -904,18 +894,7 @@ def main(argv):
 
   tf.logging.info('Training...')
 
-  if xFLAGS.keras_training_loop:
-    model.fit(
-        x_train,
-        y_train,
-        batch_size=xFLAGS.batch_size,
-        epochs=xFLAGS.epochs,
-        validation_data=(x_test, y_test),
-        shuffle=True,
-        callbacks=callbacks,
-        verbose=xFLAGS.show_progress_bar)
-  else:
-    tf_train(x_train, y_train, model, tf_opt, recorder, callbacks)
+  tf_train(x_train, y_train, model, tf_opt, recorder, callbacks)
 
   if xFLAGS.save_final_weights_vector:
     weights = model.get_weights()
