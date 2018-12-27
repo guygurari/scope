@@ -53,8 +53,6 @@ ALL_SAMPLES = -1
 
 FLAGS = flags.FLAGS
 
-# def my_DEFINE_string(name, default, help):  # pylint: disable=invalid-name
-
 flags.DEFINE_string('job-dir', '', 'Ignored')
 flags.DEFINE_string('summary_dir', 'logs', 'Base summary and logs directory')
 flags.DEFINE_string(UID_TAG, uuid.uuid4().hex, 'Unique run identifier')
@@ -87,6 +85,8 @@ flags.DEFINE_float('resample_prob', 1,
                    'Must be specified with --iid_batches.')
 
 flags.DEFINE_boolean('adam', False, 'Use Adam optimizer')
+flags.DEFINE_float('momentum', None, 'Use momentum optimizer '
+                   '(supply momentum coefficient)')
 # flags.DEFINE_boolean('projected_gd', False, 'Use Projected Gradient Descent')
 # flags.DEFINE_integer('projected_num_evs', 10,
 #                      'How many Hessian eigenvalues to measure for PGD')
@@ -350,6 +350,8 @@ def init_flags():
 
   if xFLAGS.adam:
     xFLAGS.set('optimizer_name', 'adam')
+  elif xFLAGS.momentum is not None:
+    xFLAGS.set('optimizer_name', 'momentum')
   else:
     xFLAGS.set('optimizer_name', 'sgd')
 
@@ -684,6 +686,10 @@ def get_optimizer():
   elif xFLAGS.optimizer_name == 'adam':
     keras_opt = keras.optimizers.adam()
     tf_opt = tf.train.AdamOptimizer(learning_rate=xFLAGS.lr)
+  elif xFLAGS.optimizer_name == 'momentum':
+    keras_opt = keras.optimizers.SGD(lr=xFLAGS.lr, momentum=xFLAGS.momentum)
+    tf_opt = tf.train.MomentumOptimizer(
+        learning_rate=xFLAGS.lr, momentum=xFLAGS.momentum)
   # elif xFLAGS.optimizer_name == 'projected-gd':
   #     hessian_spec = tfutils.KerasHessianSpectrum(
   #         model, x_train, y_train, xFLAGS.projected_batch_size)
