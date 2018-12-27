@@ -78,8 +78,16 @@ flags.DEFINE_float('image_resize', 1, 'Resize images by given factor')
 flags.DEFINE_boolean('dropout', False, 'Use dropout')
 flags.DEFINE_boolean('batch_norm', False, 'Use batch normalization')
 flags.DEFINE_float('lr', 0.1, 'Learning rate')
-flags.DEFINE_float('lr_decay', 1,
-                   'Multiply the learning rate by this after every epoch')
+flags.DEFINE_float('lr_linear_decay_alpha', None,
+                   'alpha defining linear learning rate decay. '
+                   'If this is specified, learning rate will start at --lr '
+                   'value and will decay linearly with every step until '
+                   'step T. The final lr value is alpha*(initial-lr).')
+flags.DEFINE_float('lr_linear_decay_T', None,
+                   'T defining linear learning rate decay. '
+                   'If this is specified, learning rate will start at --lr '
+                   'value and will decay linearly with every step until '
+                   'step T. The final lr value is alpha*(initial-lr).')
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
                    'Must be specified with --iid_batches.')
@@ -634,6 +642,49 @@ def add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test):
     callbacks.append(gauss_cb)
 
 
+class LearningRateLinearDecaySchedule(meas.Measurement):
+  """Update the learning rate according to a linear decay schedule,
+  and record it. Used for example in 1811.03600."""
+  def __init__(self, recorder, lr_tensor, eta0, alpha=None, T=None):
+    """Ctor. The learning rate at step t will be given by:
+
+    eta(t) = eta0 - (1-alpha) * eta0 * t / T   if t <= T
+    eta(t) = alpha * eta0                      if t > T
+
+    Args:
+      lr_tensor: Tensor holding the learning rate during training
+      eta0: Initial learning rate
+      alpha: Linear decay coefficient, or None to keep constant lr
+      T: Time at which to stop decaying, or None to keep constant lr
+      recorder: Used to record the learning rate (or None if not recording)
+    """
+    super(LearningRateLinearDecaySchedule, self).__init__(
+        meas.Frequency(freq=1, stepwise=True),
+        recorder)
+    self.lr_tensor = lr_tensor
+    self.eta0 = eta0
+    self.alpha = alpha
+    self.T = T
+
+  def lr(self):
+    """Returns the current learning rate"""
+    if self.T is None:
+      return self.eta0
+    elif self.step <= self.T:
+      return self.eta0 - (1 - self.alpha) * self.eta0 * self.step / self.T
+    else:
+      return self.alpha * self.eta0
+
+  def feed_dict(self):
+    """Returns a feed_dict with the learning rate filled in."""
+    return {self.lr_tensor: self.lr()}
+
+  def measure(self, logs=None):
+    """Record the learning rate"""
+    if self.recorder is not None:
+      self.record_scalar('lr', self.lr())
+
+
 def save_model_weights(model):
   """Save the model."""
   save_dir = xFLAGS.runlogdir + '/saved_models'
@@ -669,26 +720,38 @@ def load_model_weights(model_weights_path, model):
     tf.gfile.Remove(tmp_model_weights_path)
 
 
-def get_optimizer():
+def get_optimizer(lr):
   if xFLAGS.optimizer_name == 'sgd':
-    keras_opt = keras.optimizers.SGD(lr=xFLAGS.lr)
-    tf_opt = tf.train.GradientDescentOptimizer(learning_rate=xFLAGS.lr)
+    keras_opt = keras.optimizers.SGD(lr=lr)
+    tf_opt = tf.train.GradientDescentOptimizer(learning_rate=lr)
   elif xFLAGS.optimizer_name == 'adam':
     keras_opt = keras.optimizers.adam()
-    tf_opt = tf.train.AdamOptimizer(learning_rate=xFLAGS.lr)
+    tf_opt = tf.train.AdamOptimizer(learning_rate=lr)
   elif xFLAGS.optimizer_name == 'momentum':
-    keras_opt = keras.optimizers.SGD(lr=xFLAGS.lr, momentum=xFLAGS.momentum)
+    keras_opt = keras.optimizers.SGD(lr=lr, momentum=xFLAGS.momentum)
     tf_opt = tf.train.MomentumOptimizer(
-        learning_rate=xFLAGS.lr, momentum=xFLAGS.momentum)
+        learning_rate=lr, momentum=xFLAGS.momentum)
   # elif xFLAGS.optimizer_name == 'projected-gd':
   #     hessian_spec = tfutils.KerasHessianSpectrum(
   #         model, x_train, y_train, xFLAGS.projected_batch_size)
   #     keras_opt = meas.ProjectedGradientDescent(
-  #         xFLAGS.lr, model, x_train, y_train,
+  #         lr, model, x_train, y_train,
   #         hessian_spec, xFLAGS.projected_num_evs)
   else:
     raise RuntimeError('Unknown optimizer: {}'.format(xFLAGS.optimizer_name))
   return keras_opt, tf_opt
+
+
+def get_learning_rate_schedule(recorder, lr_tensor):
+  if xFLAGS.lr_linear_decay_alpha is None:
+    return LearningRateLinearDecaySchedule(
+        recorder, lr_tensor, xFLAGS.lr, None, None)
+  else:
+    return LearningRateLinearDecaySchedule(
+        recorder, lr_tensor,
+        xFLAGS.lr,
+        xFLAGS.lr_linear_decay_alpha,
+        xFLAGS.lr_linear_decay_T)
 
 
 class DelayedLoggingHandler(logging.handlers.MemoryHandler):
@@ -756,7 +819,7 @@ def init_logging():
 
 
 
-def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
+def tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks):
   """TensorFlow training loop."""
   if xFLAGS.iid_batches:
     train_ds = tf.data.Dataset.from_generator(
@@ -776,12 +839,7 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
 
   train_step = tf_opt.minimize(model.total_loss)
 
-  # Using the Keras session because it was created during model.compile()
-  sess = K.get_session()
-  # sess = tf.Session()
-  # K.set_session(sess)
-
-  sess.run(tf.global_variables_initializer())
+  sess.run(tf.global_variables_initializer(), feed_dict=lr_schedule.feed_dict())
   step = 0
   epoch = 0
 
@@ -829,6 +887,7 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
             model,
             x_batch,
             y_batch,
+            feed_dict=lr_schedule.feed_dict(),
             learning_phase=tfutils.KERAS_LEARNING_PHASE_TRAIN)
         sess.run([train_step, model.updates], feed_dict=feed)
 
@@ -841,6 +900,8 @@ def tf_train(x_train, y_train, model, tf_opt, recorder, callbacks):
       for callback in callbacks:
         callback.on_epoch_end(epoch)
       epoch += 1
+      print('lr_schedule.lr() =', lr_schedule.lr())
+
 
 
 def main(argv):
@@ -861,13 +922,17 @@ def main(argv):
   x_train, y_train, x_test, y_test = get_dataset()
   model = get_model(x_train.shape[1:])
 
-  keras_opt, tf_opt = get_optimizer()
+  lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
+  keras_opt, tf_opt = get_optimizer(lr_tensor)
 
   init_logging()
 
   tbutils.save_run_flags(
     xFLAGS.runlogdir,
     additional_flags=xFLAGS.additional_flags)
+
+  sess = tf.Session()
+  K.set_session(sess)
 
   if is_regression():
     model.compile(
@@ -887,14 +952,19 @@ def main(argv):
       tfutils.total_num_weights(model)))
 
   callbacks = []
+  recorder = None
 
   if xFLAGS.summaries:
     recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
     add_callbacks(callbacks, recorder, model, x_train, y_train, x_test, y_test)
 
+  lr_schedule = get_learning_rate_schedule(recorder, lr_tensor)
+  callbacks.append(lr_schedule)
+
   tf.logging.info('Training...')
 
-  tf_train(x_train, y_train, model, tf_opt, recorder, callbacks)
+  tf_train(
+      sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks)
 
   if xFLAGS.save_final_weights_vector:
     weights = model.get_weights()

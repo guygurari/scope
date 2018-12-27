@@ -270,8 +270,6 @@ class BasicMetricsMeasurement(Measurement):
 
     self.record_scalar('epoch', self.epoch)
     self.record_scalar('step', self.step)
-    # TODO don't use the Keras optimizer for this since we switched to TF
-    self.record_scalar('current_lr', self.model.optimizer.lr.eval(sess))
     self.record_scalar('weight_norm', K.get_session().run(self.weight_norm))
 
     self._compute_metrics(self.train_batches, logs, prefix='')
