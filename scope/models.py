@@ -43,7 +43,6 @@ def add_dense_layers(args, model, widths, input_shape=None):
       model.add(_dense_layer(args, width))
     except ValueError:
       # If it's the first layer we need to specify the input shape
-      print('FIRST LAYER')
       model.add(_dense_layer(args, width, input_shape=input_shape))
     if args.batch_norm:
       model.add(BatchNormalization())

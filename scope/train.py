@@ -1017,8 +1017,7 @@ def main(argv):
 
   tf.logging.info('Training...')
 
-  tf_train(
-      sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks)
+  tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks)
 
   if xFLAGS.save_final_weights_vector:
     weights = model.get_weights()
