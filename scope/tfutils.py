@@ -204,7 +204,9 @@ def clone_keras_model_shared_weights(
   Returns:
       The cloned Keras model.
   """
-  inputs = keras.layers.Input(tensor=input_tensor)
+  assert len(model.inputs) == 1
+  inputs = keras.layers.Input(tensor=input_tensor,
+                              shape=model.inputs[0].shape[1:])
   clone = keras.Model(
     inputs=inputs,
     outputs=model(input_tensor))
@@ -222,9 +224,13 @@ def flatten_tensor_list(tensors):
 
 
 def unflatten_tensor_list(flat_tensor, orig_tensors):
-  """Reshape a tensor flattened using flatten_tensor_list() back
-
-    to its original shape.
+  """Reshape a flattened tensor back to a list of tensors with their
+  original shapes.
+  
+  Args:
+    flat_tensor: A tensor that was previously flattened using
+      flatten_tensor_list()
+    orig_tensor: A list of tensors with the original desired shapes.
   """
   unflattened = []
   offset = 0
@@ -237,9 +243,13 @@ def unflatten_tensor_list(flat_tensor, orig_tensors):
 
 
 def compute_sample_mean_tensor(model, batches, tensors, feed_dict={}):
-  """Compute the sample mean of the given tensor or list of tensors,
+  """Compute the sample mean of the given tensors.
 
-    iterating over mini-batches. batches is a MiniBatchMaker.
+  Args:
+    model: Keras Model
+    batches: MiniBatchMaker
+    tensors: Tensor or list of Tensors to compute the mean of
+    feed_dict: Used when evaluating tensors
   """
   sample_means = None
   tensors_is_list = isinstance(tensors, (list, tuple))
