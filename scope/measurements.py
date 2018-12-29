@@ -244,6 +244,9 @@ class BasicMetricsMeasurement(Measurement):
                show_progress=False):
     super(BasicMetricsMeasurement, self).__init__(freq, recorder)
     self.timer = Timer()
+    self._prev_secs = self.timer.secs
+    self._prev_step = 0
+
     self.train_batches = train_batches
     self.test_batches = test_batches
     self.lr_schedule = lr_schedule
@@ -293,7 +296,12 @@ class BasicMetricsMeasurement(Measurement):
     logs[prefix + 'acc'] = means[1]
 
   def _print_simple_progress(self, logs):
-    duration = '{:.1f} secs'.format(self.timer.secs)
+    rate_since_prev = (
+        (self.timer.secs - self._prev_secs) / (self.step - self._prev_step + 1))
+    self._prev_secs = self.timer.secs
+    self._prev_step = self.step
+    duration = '{:.1f} secs total, {:.2f} ms/step'.format(
+        self.timer.secs, 1000 * rate_since_prev)
 
     metric_strs = []
 
