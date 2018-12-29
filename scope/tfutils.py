@@ -155,16 +155,16 @@ def _AsList(x):
 
 
 def keras_feed_dict(model,
-                    x,
-                    y,
+                    x=None,
+                    y=None,
                     feed_dict={},
                     learning_phase=KERAS_LEARNING_PHASE_TEST):
   """Return a feed dict with inputs and labels suitable for Keras.
 
     Args:
         model: A Keras Model
-        x: Model inputs
-        y: Model targets (labels)
+        x: Model inputs, or None if inputs are not fed
+        y: Model targets (labels), or None if targets are not fed
         feed_dict: Additional feed_dict to merge with (if given, updated in
           place)
         learning_phase: 0 for TEST, 1 for TRAIN
@@ -173,9 +173,11 @@ def keras_feed_dict(model,
         The new feed_dict (equal to feed_dict if that was provided).
     """
   new_feed_dict = dict(feed_dict)
-  new_feed_dict[model.inputs[0]] = x
-  new_feed_dict[model.sample_weights[0]] = np.ones(x.shape[0])
-  new_feed_dict[model.targets[0]] = y
+  if x is not None:
+    new_feed_dict[model.inputs[0]] = x
+    new_feed_dict[model.sample_weights[0]] = np.ones(x.shape[0])
+  if y is not None:
+    new_feed_dict[model.targets[0]] = y
   new_feed_dict[K.learning_phase()] = learning_phase  # TEST phase
   return new_feed_dict
 

@@ -207,6 +207,8 @@ flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
 flags.DEFINE_boolean('save_final_weights_vector', False,
                      'Save the final trained weights vector as a '
                      'flat vector summary')
+flags.DEFINE_integer('prefetch_buffer_size', 10,
+                     'How many elements to prefetch during training')
 
 
 class ExtendedFlags:
@@ -411,7 +413,7 @@ def init_randomness():
   tf.set_random_seed(random.randint(0, MAXINT32))
 
 
-def get_dataset():
+def get_data():
   """Create the dataset used for training.
 
     Returns:
@@ -544,22 +546,37 @@ def get_dataset():
   return x_train, y_train, x_test, y_test
 
 
-def get_model(input_shape):
+def create_model(input_shape, keras_opt):
   """Returns the Keras model for training."""
   if is_regression():
     model = models.regression_fc_model(xFLAGS, xFLAGS.output_dim)
   elif xFLAGS.fc is not None:
-    model = models.classification_fc_model(xFLAGS, input_shape,
-                                          xFLAGS.num_classes)
+    model = models.classification_fc_model(
+      xFLAGS, input_shape, xFLAGS.num_classes)
   elif xFLAGS.small_cnn:
     model = models.classification_small_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
   else:
     model = models.classification_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
+
+  if is_regression():
+    model.compile(
+        loss='mean_squared_error', optimizer=keras_opt, metrics=['mae'])
+  else:
+    model.compile(
+        loss='categorical_crossentropy',
+        optimizer=keras_opt,
+        metrics=['accuracy'])
+
+  tf.logging.info('Model summary:')
+  buf = StringIO()
+  model.summary(print_fn=lambda s: buf.write(s + '\n'))
+  tf.logging.info(buf.getvalue())
+  tf.logging.info('Total model parameters: {}'.format(
+      tfutils.total_num_weights(model)))
+
   return model
-
-
 
 
 def add_callbacks(
@@ -882,16 +899,20 @@ def get_tf_dataset(x, y, lr_schedule):
     ds = ds.shuffle(len(x))
     ds = ds.batch(xFLAGS.batch_size)
 
+  ds = ds.prefetch(buffer_size=xFLAGS.prefetch_buffer_size)
   return ds
 
 
-def tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks):
+def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks):
   """TensorFlow training loop."""
   train_ds = get_tf_dataset(x_train, y_train, lr_schedule)
   iterator = tf.data.Iterator.from_structure(train_ds.output_types,
-                                              train_ds.output_shapes)
+                                             train_ds.output_shapes)
   next_batch = iterator.get_next()
   iterator_init_op = iterator.make_initializer(train_ds)
+
+  model = tfutils.clone_keras_model_shared_weights(
+    base_model, next_batch[0], next_batch[1])
 
   train_step = tf_opt.minimize(model.total_loss)
 
@@ -909,7 +930,7 @@ def tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks):
     load_model_weights(xFLAGS.load_weights, model)
 
   for callback in callbacks:
-    callback.set_model(model)
+    callback.set_model(base_model)
 
   def counting_epochs():
     return xFLAGS.steps is None
@@ -931,18 +952,14 @@ def tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks):
       callback.on_epoch_begin(epoch)
 
     sess.run(iterator_init_op)
-    (x_batch, y_batch) = sess.run(next_batch)
     try:
       while should_train_next_step():
         for callback in callbacks:
           callback.on_batch_begin(step)
 
-        # TODO This is slow. Connect the dataset tensor to
-        # the model input to make it faster.
         feed = tfutils.keras_feed_dict(
             model,
-            x_batch,
-            y_batch,
+            x=None, y=None,
             feed_dict=lr_schedule.feed_dict(),
             learning_phase=tfutils.KERAS_LEARNING_PHASE_TRAIN)
         sess.run([train_step, model.updates], feed_dict=feed)
@@ -950,8 +967,6 @@ def tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks):
         for callback in callbacks:
           callback.on_batch_end(step)
         step += 1
-
-        (x_batch, y_batch) = sess.run(next_batch)
     except tf.errors.OutOfRangeError:
       for callback in callbacks:
         callback.on_epoch_end(epoch)
@@ -973,8 +988,7 @@ def main(argv):
   else:
     os.environ['CUDA_VISIBLE_DEVICES'] = str(xFLAGS.gpu)
 
-  x_train, y_train, x_test, y_test = get_dataset()
-  model = get_model(x_train.shape[1:])
+  x_train, y_train, x_test, y_test = get_data()
 
   lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
   keras_opt, tf_opt = get_optimizer(lr_tensor)
@@ -988,25 +1002,10 @@ def main(argv):
   sess = tf.Session()
   K.set_session(sess)
 
-  if is_regression():
-    model.compile(
-        loss='mean_squared_error', optimizer=keras_opt, metrics=['mae'])
-  else:
-    model.compile(
-        loss='categorical_crossentropy',
-        optimizer=keras_opt,
-        metrics=['accuracy'])
-
-  tf.logging.info('Model summary:')
-
-  buf = StringIO()
-  model.summary(print_fn=lambda s: buf.write(s + '\n'))
-  tf.logging.info(buf.getvalue())
-  tf.logging.info('Total model parameters: {}'.format(
-      tfutils.total_num_weights(model)))
-
   lr_schedule = get_learning_rate_schedule(lr_tensor)
   callbacks = [lr_schedule]
+
+  model = create_model(x_train.shape[1:], keras_opt)
 
   if xFLAGS.summaries:
     recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
