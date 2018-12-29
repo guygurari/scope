@@ -89,6 +89,7 @@ def classification_convnet_model(args, input_shape, num_classes):
   """Convnet classification"""
   model = keras.models.Sequential()
   model.add(keras.layers.InputLayer(input_shape=input_shape))
+
   model.add(_conv2d_layer(args, 32, (3, 3), padding='same'))
   if args.batch_norm:
     # The default Conv2D data format is 'channels_last' and the
@@ -122,8 +123,8 @@ def classification_convnet_model(args, input_shape, num_classes):
     model.add(Dropout(0.25))
 
   model.add(Flatten())
+
   if args.dense:
-    # model.add(Dense(512, name='dense'))
     model.add(_dense_layer(args, args.cnn_last_layer, name='dense'))
     if args.overparam > 0:
       for i in range(args.overparam):
@@ -142,6 +143,7 @@ def classification_convnet_model(args, input_shape, num_classes):
       model.add(
           _dense_layer(
               args, num_classes, name='output-overparam{}'.format(i + 1)))
+
   logits = _dense_layer(args, num_classes, name='logits')
   model.add(logits)
   model.add(Activation('softmax'))
