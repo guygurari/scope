@@ -92,16 +92,18 @@ flags.DEFINE_float('lr_linear_decay_T', None,
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
                    'Must be specified with --iid_batches.')
-flags.DEFINE_float('resample_prob_decay_alpha', None,
-                   'alpha defining linear resample probability decay. '
-                   'If this is specified, it will start at --resample_prob '
-                   'value and will decay linearly with every step until '
-                   'step T. The final value is alpha*initial.')
 flags.DEFINE_float('resample_prob_decay_T', None,
                    'T defining resample probability decay. '
                    'If this is specified, it will start at --resample_prob '
                    'value and will decay linearly with every step until '
                    'step T. The final value is alpha*initial.')
+flags.DEFINE_float('resample_prob_decay_alpha', None,
+                   'alpha defining linear resample probability decay. '
+                   'If this is specified, it will start at --resample_prob '
+                   'value and will decay linearly with every step until '
+                   'step T. The final value is alpha*initial. '
+                   'If T is specified and alpha is not, alpha is set to '
+                   '1/initial so the final prob value is 1.')
 
 flags.DEFINE_boolean('resample_prob_follows_lr', False,
                      'If True, resample probability will decay with the '
@@ -876,11 +878,17 @@ def get_resample_prob(lr_schedule):
       current_prob = np.min([xFLAGS.resample_prob * lr_schedule.lr() / lr0, 1])
       return current_prob
     return resample_prob_following_lr
-  elif xFLAGS.resample_prob_decay_alpha is not None:
+  elif xFLAGS.resample_prob_decay_T is not None:
+    if xFLAGS.resample_prob_decay_alpha is None:
+      rp_alpha = 1. / xFLAGS.resample_prob
+    else:
+      rp_alpha = xFLAGS.resample_prob_decay_alpha
     def resample_prob_decaying():
       return linear_decay(
-        xFLAGS.resample_prob, xFLAGS.resample_prob_decay_alpha,
-        xFLAGS.resample_prob_decay_T, lr_schedule.step)
+        xFLAGS.resample_prob,
+        rp_alpha,
+        xFLAGS.resample_prob_decay_T,
+        lr_schedule.step)
     return resample_prob_decaying
   else:
     return xFLAGS.resample_prob
