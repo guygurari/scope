@@ -975,7 +975,6 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
         if epoch_ended:
           epoch_ended = False
         else:
-          print('Calling on_batch_begin for step {}'.format(step))
           for callback in callbacks:
             callback.on_batch_begin(step)
 
@@ -990,7 +989,6 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
           callback.on_batch_end(step)
         step += 1
     except tf.errors.OutOfRangeError:
-      print('Epoch ended')
       for callback in callbacks:
         callback.on_epoch_end(epoch)
       epoch += 1
