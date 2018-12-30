@@ -548,8 +548,9 @@ def get_data():
   return x_train, y_train, x_test, y_test
 
 
-def create_model(input_shape, keras_opt):
+def create_model(input_shape):
   """Returns the Keras model for training."""
+  
   if is_regression():
     model = models.regression_fc_model(xFLAGS, xFLAGS.output_dim)
   elif xFLAGS.fc is not None:
@@ -561,6 +562,11 @@ def create_model(input_shape, keras_opt):
   else:
     model = models.classification_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
+
+  # This is not the actual optimizer, it's just required by Keras
+  # for compiling the model. We put a large learning rate just in case
+  # this gets used by mistake.
+  keras_opt = keras.optimizers.SGD(lr=1000)
 
   if is_regression():
     model.compile(
@@ -774,13 +780,10 @@ def load_model_weights(model_weights_path, model):
 
 def get_optimizer(lr):
   if xFLAGS.optimizer_name == 'sgd':
-    keras_opt = keras.optimizers.SGD(lr=lr)
     tf_opt = tf.train.GradientDescentOptimizer(learning_rate=lr)
   elif xFLAGS.optimizer_name == 'adam':
-    keras_opt = keras.optimizers.adam()
     tf_opt = tf.train.AdamOptimizer(learning_rate=lr)
   elif xFLAGS.optimizer_name == 'momentum':
-    keras_opt = keras.optimizers.SGD(lr=lr, momentum=xFLAGS.momentum)
     tf_opt = tf.train.MomentumOptimizer(
         learning_rate=lr, momentum=xFLAGS.momentum)
   # elif xFLAGS.optimizer_name == 'projected-gd':
@@ -791,7 +794,7 @@ def get_optimizer(lr):
   #         hessian_spec, xFLAGS.projected_num_evs)
   else:
     raise RuntimeError('Unknown optimizer: {}'.format(xFLAGS.optimizer_name))
-  return keras_opt, tf_opt
+  return tf_opt
 
 
 def get_learning_rate_schedule(lr_tensor):
@@ -955,6 +958,7 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
     else:
       return step < xFLAGS.steps
 
+  epoch_ended = False
   while should_train_next_epoch():
     for callback in callbacks:
       callback.on_epoch_begin(epoch)
@@ -962,8 +966,18 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
     sess.run(iterator_init_op)
     try:
       while should_train_next_step():
-        for callback in callbacks:
-          callback.on_batch_begin(step)
+        # This condition handles the following case:
+        # - on_batch_begin_called
+        # - epoch ends, so sess.run() throws OutOfRangeError and
+        #   the step is not actually taken, 'step' not advanced
+        # - when looping around, we don't want to call on_batch_begin
+        #   again for the same step
+        if epoch_ended:
+          epoch_ended = False
+        else:
+          print('Calling on_batch_begin for step {}'.format(step))
+          for callback in callbacks:
+            callback.on_batch_begin(step)
 
         feed = tfutils.keras_feed_dict(
             model,
@@ -976,9 +990,11 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
           callback.on_batch_end(step)
         step += 1
     except tf.errors.OutOfRangeError:
+      print('Epoch ended')
       for callback in callbacks:
         callback.on_epoch_end(epoch)
       epoch += 1
+      epoch_ended = True
 
 
 def main(argv):
@@ -998,9 +1014,6 @@ def main(argv):
 
   x_train, y_train, x_test, y_test = get_data()
 
-  lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
-  keras_opt, tf_opt = get_optimizer(lr_tensor)
-
   init_logging()
 
   tbutils.save_run_flags(
@@ -1010,10 +1023,12 @@ def main(argv):
   sess = tf.Session()
   K.set_session(sess)
 
+  model = create_model(x_train.shape[1:])
+
+  lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
+  tf_opt = get_optimizer(lr_tensor)
   lr_schedule = get_learning_rate_schedule(lr_tensor)
   callbacks = [lr_schedule]
-
-  model = create_model(x_train.shape[1:], keras_opt)
 
   if xFLAGS.summaries:
     recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
