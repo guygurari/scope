@@ -42,6 +42,7 @@ import colored_traceback
 import scope.datasets
 import scope.measurements as meas
 import scope.models as models
+import scope.schedules as schedules
 import scope.tbutils as tbutils
 import scope.tfutils as tfutils
 from scope.experiment_defs import *
@@ -690,59 +691,6 @@ def add_callbacks(
     callbacks.append(gauss_cb)
 
 
-def linear_decay(x0, alpha, T, t):
-    """Compute the linear decay rate of quantity x at time t.
-
-    x(t) = x0 - (1-alpha) * x0 * t / T   if t <= T
-    x(t) = alpha * x0                    if t > T
-
-    Args:
-      x0: Initial value
-      alpha: Linear decay coefficient (alpha > 0)
-      T: Time at which to stop decaying
-      t: Current time
-    """
-    if t <= T:
-      return x0 - (1 - alpha) * x0 * t / T
-    else:
-      return alpha * x0
-
-
-class LearningRateLinearDecaySchedule(meas.Measurement):
-  """Update the learning rate according to a linear decay schedule,
-  and record it. Used for example in 1811.03600."""
-  def __init__(self, lr_tensor, eta0, alpha=None, T=None):
-    """Ctor. The learning rate at step t will be given by:
-
-    eta(t) = eta0 - (1-alpha) * eta0 * t / T   if t <= T
-    eta(t) = alpha * eta0                      if t > T
-
-    Args:
-      lr_tensor: Tensor holding the learning rate during training
-      eta0: Initial learning rate
-      alpha: Linear decay coefficient, or None to keep constant lr
-      T: Time at which to stop decaying, or None to keep constant lr
-    """
-    super(LearningRateLinearDecaySchedule, self).__init__(
-        meas.Frequency(freq=1, stepwise=True),
-        recorder=None)
-    self.lr_tensor = lr_tensor
-    self.eta0 = eta0
-    self.alpha = alpha
-    self.T = T
-
-  def lr(self):
-    """Returns the current learning rate"""
-    if self.T is None:
-      return self.eta0
-    else:
-      return linear_decay(self.eta0, self.alpha, self.T, self.step)
-
-  def feed_dict(self):
-    """Returns a feed_dict with the learning rate filled in."""
-    return {self.lr_tensor: self.lr()}
-
-
 def save_model_weights(model):
   """Save the model."""
   save_dir = xFLAGS.runlogdir + '/saved_models'
@@ -799,10 +747,10 @@ def get_optimizer(lr):
 
 def get_learning_rate_schedule(lr_tensor):
   if xFLAGS.lr_linear_decay_alpha is None:
-    return LearningRateLinearDecaySchedule(
+    return schedules.LearningRateLinearDecaySchedule(
         lr_tensor, xFLAGS.lr, None, None)
   else:
-    return LearningRateLinearDecaySchedule(
+    return schedules.LearningRateLinearDecaySchedule(
         lr_tensor,
         xFLAGS.lr,
         xFLAGS.lr_linear_decay_alpha,
@@ -887,7 +835,7 @@ def get_resample_prob(lr_schedule):
     else:
       rp_alpha = xFLAGS.resample_prob_decay_alpha
     def resample_prob_decaying():
-      return linear_decay(
+      return schedules.linear_decay(
         xFLAGS.resample_prob,
         rp_alpha,
         xFLAGS.resample_prob_decay_T,
@@ -1026,7 +974,7 @@ def main(argv):
   lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
   tf_opt = get_optimizer(lr_tensor)
   lr_schedule = get_learning_rate_schedule(lr_tensor)
-  callbacks = [lr_schedule]
+  callbacks = []
 
   if xFLAGS.summaries:
     recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
