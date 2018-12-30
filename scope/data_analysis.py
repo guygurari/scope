@@ -259,19 +259,17 @@ class Experiments:
   def _experiment_matches_func(self, flags, func):
     """Returns whether the given function returns True on the given flags
     dict. If func is not a function, returns None."""
+    if not callable(func):
+      return None
     try:
-      try:
-        result = func(flags)
-      except AttributeError:
-        print('Warning: select function raised exception for flags, skipping:')
-        print(flags)
-        return False
+      result = func(flags)
       if type(result) != bool:
         raise ValueError('Expecting boolean return value')
-      elif result == False:
-        return False
-    except TypeError:
-      return None
+      return result
+    except:
+      print('Warning: select function raised exception for flags, skipping:')
+      print(flags)
+      return False
 
   def _experiment_matches_dict(self, flags, criteria):
     """Returns whether the given flags dict matches the criteria dict.
