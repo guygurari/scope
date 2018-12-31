@@ -445,7 +445,7 @@ class GradientMeasurement(Measurement):
         batches, full_batch_g)
 
     if prnt:
-      tf.logging.info('Hg_eigenvalue ={}\tHg_g_overlap ={}'.format(
+      tf.logging.info('Hg_eigenvalue={}\tHg_g_overlap={}'.format(
           Hg_eigenvalue, Hg_g_overlap))
     self.record_scalar(prefix + HESS_GRAD_OVERLAP,
                       Hg_g_overlap)
