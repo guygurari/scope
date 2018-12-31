@@ -32,6 +32,7 @@ import numpy as np
 import scipy
 
 import tensorflow as tf
+
 from tensorflow.python.client import device_lib
 
 import keras
@@ -89,6 +90,8 @@ flags.DEFINE_float('lr_linear_decay_T', None,
                    'If this is specified, learning rate will start at --lr '
                    'value and will decay linearly with every step until '
                    'step T. The final lr value is alpha*(initial-lr).')
+flags.DEFINE_boolean('lr_overlap_schedule', False,
+                     'Set the lr dynamically using the Hessian-gradient overlap')
 
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
@@ -291,8 +294,10 @@ def run_name():  # pylint: disable=too-many-branches
     name += '-L2reg{}'.format(nice_l2)
   nice_lr = ('%f' % xFLAGS.lr).rstrip('0')
   name += '-lr{}'.format(nice_lr)
-  if xFLAGS.lr_linear_decay_alpha is not None:
-    name += '-lrDecay{},{}'.format(
+  if xFLAGS.lr_overlap_schedule:
+    name += '-lrOverlapSched'
+  elif xFLAGS.lr_linear_decay_alpha is not None:
+    name += '-lrDecaySched{},{}'.format(
         xFLAGS.lr_linear_decay_alpha,
         xFLAGS.lr_linear_decay_T)
   if xFLAGS.iid_batches:
@@ -403,6 +408,9 @@ def init_flags():
 
   if xFLAGS.resample_prob < 1 and not xFLAGS.iid_batches:
     fatal('Must specify --iid_batches with --resample_prob')
+
+  if xFLAGS.lr_overlap_schedule and xFLAGS.gradients is None:
+    fatal('Must specify --gradients with --lr_overlap_schedule')
 
 
 def init_randomness():
@@ -746,11 +754,14 @@ def get_optimizer(lr):
 
 
 def get_learning_rate_schedule(lr_tensor):
-  if xFLAGS.lr_linear_decay_alpha is None:
-    return schedules.LearningRateLinearDecaySchedule(
-        lr_tensor, xFLAGS.lr, None, None)
+  if xFLAGS.lr_overlap_schedule:
+    return schedules.OverlapSchedule(
+      lr_tensor, xFLAGS.lr)
+  elif xFLAGS.lr_linear_decay_alpha is None:
+    return schedules.LinearDecaySchedule(
+      lr_tensor, xFLAGS.lr, None, None)
   else:
-    return schedules.LearningRateLinearDecaySchedule(
+    return schedules.LinearDecaySchedule(
         lr_tensor,
         xFLAGS.lr,
         xFLAGS.lr_linear_decay_alpha,
@@ -974,7 +985,7 @@ def main(argv):
   lr_tensor = tf.placeholder(tf.float32, shape=[], name='lr')
   tf_opt = get_optimizer(lr_tensor)
   lr_schedule = get_learning_rate_schedule(lr_tensor)
-  callbacks = []
+  callbacks = [lr_schedule]
 
   if xFLAGS.summaries:
     recorder = meas.MeasurementsRecorder(summary_dir=xFLAGS.runlogdir)
@@ -982,6 +993,7 @@ def main(argv):
         callbacks, recorder, model,
         x_train, y_train, x_test, y_test,
         lr_schedule)
+    lr_schedule.set_recorder(recorder)
 
   tf.logging.info('Training...')
 
