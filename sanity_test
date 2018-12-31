@@ -6,5 +6,7 @@ echo "============= CIFAR10, CNN =============" && \
 python scope/train.py -v 0 --name test --dataset cifar10 --gradients 1 --epochs 2 --hessian 1 --image_resize 0.5 --samples 100 && \
 echo "============= GAUSSIANS =============" && \
 python scope/train.py -v 0 --name test --dataset gaussians --fc 20,20 --gradients 1 --epochs 2 --hessian 1 && \
+echo "============= SCHEDULES =========" && \
+python scope/train.py --name test -v 0 --dataset cifar10 --cnn --lr 0.38432427419428472 --lr_linear_decay_alpha 0.515549755374884 --lr_linear_decay_T 19055 --batch_size 500 --steps 501 --loss_and_acc 500s --iid_batches --resample_prob 0.5 --resample_prob_decay_T 100
 echo "========== DIDN'T CRASH! YEY! ===================="
 
