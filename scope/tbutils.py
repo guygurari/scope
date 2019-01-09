@@ -7,6 +7,7 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorboard.backend.event_processing.event_multiplexer as emux
+import tensorboard.backend.event_processing.event_accumulator as event_accumulator
 import tensorflow as tf
 import pandas as pd
 import json
@@ -83,7 +84,14 @@ class EventLoader:
           logdir: The string directory name containing event files.
     """
     self.logdir = logdir
-    self.event_mux = emux.EventMultiplexer().AddRunsFromDirectory(self.logdir)
+
+    # Do not restrict the number of scalars and tensors we're saving
+    size_guidance = event_accumulator.DEFAULT_SIZE_GUIDANCE
+    size_guidance[event_accumulator.SCALARS] = 0
+    size_guidance[event_accumulator.TENSORS] = 0
+
+    self.event_mux = emux.EventMultiplexer(size_guidance=size_guidance)
+    self.event_mux.AddRunsFromDirectory(self.logdir)
     self.event_mux.Reload()
 
   def reload(self):
