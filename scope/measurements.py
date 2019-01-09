@@ -27,6 +27,7 @@ HESS_GRAD_OVERLAP = 'hessian_gradient/gradient_overlap'
 HESS_GRAD_EVAL = 'hessian_gradient/eigenvalue'
 
 LAST_LAYER = 'last_layer'
+WEIGHTS = 'weights'
 
 
 def _overlap(vec1, vec2):
@@ -81,6 +82,11 @@ class Frequency:
       return Frequency(freq=int(match_epochs.group(1)), stepwise=False)
 
     raise ValueError('Cannot parse frequency string "{}"'.format(freq_desc))
+
+  @classmethod
+  def every_step(self):
+    """Returns a Frequency object for measuring every step."""
+    return Frequency(1, stepwise=True)
 
 
 class MeasurementsRecorder:
@@ -226,13 +232,16 @@ class Measurement(keras.callbacks.Callback):
         and self.epoch % self.freq.freq == 0 \
         and self.freq.epochwise
 
-  def _should_measure_by_step(self):
-    return self.freq.freq > 0 \
-        and self.step % self.freq.freq == 0 \
-        and self.freq.stepwise
+  def _should_measure_by_step(self, freq=None):
+    if freq is None:
+      freq = self.freq
+    return freq.freq > 0 \
+        and self.step % freq.freq == 0 \
+        and freq.stepwise
 
 
 class BasicMetricsMeasurement(Measurement):
+  """Record basic metricxs like loss and accuracy."""
 
   def __init__(self,
                recorder,
@@ -320,7 +329,88 @@ class BasicMetricsMeasurement(Measurement):
     ))
 
 
+class WeightsMeasurement(Measurement):
+  """Measure the weights vector."""
+  def __init__(self, recorder, model, freq):
+    super(WeightsMeasurement, self).__init__(freq, recorder)
+    self.model = model
+
+  def measure(self, logs=None):
+    for w_tensor, w_value in zip(self.model.weights, self.model.get_weights()):
+      tag = '{}/{}'.format(WEIGHTS, w_tensor.name)
+      self.record_tensor(tag, w_value)
+
+
+class WeightUpdateMeasurement(Measurement):
+  """Measures things related to the weight updates."""
+  def __init__(self, recorder, model, freq, train_batches, test_batches):
+    super(WeightUpdateMeasurement, self).__init__(
+        Frequency.every_step(), recorder)
+    self.meas_freq = freq
+    self.model = model
+    self.weights = self.model.get_weights()
+    self.weights_at_origin = self.weights
+    self.train_batches = train_batches
+    self.test_batches = test_batches
+    self.local_distance_travelled = 0
+
+    # Hessian-update product
+    self.v = tf.placeholder(
+        tf.float32, shape=(tfutils.total_num_weights(model),))
+    self.Hv = tfutils.hessian_vector_product(model.total_loss,
+                                             model.trainable_weights, self.v)
+
+  def measure(self, logs=None):
+    new_weights = self.model.get_weights()
+    weights_update = [new_w - old_w for new_w, old_w
+                      in zip(new_weights, self.weights)]
+    flat_weights_update = tfutils.flatten_array_list(weights_update)
+    self.local_distance_travelled += np.linalg.norm(flat_weights_update)
+
+    if self._should_measure_by_step(self.meas_freq):
+      global_update = [w - w0 for w, w0
+                      in zip(new_weights, self.weights_at_origin)]
+      global_distance_travelled = np.sqrt(
+          np.sum([np.sum(w**2) for w in global_update]))
+
+      self.recorder.record_scalar(
+          'weights/local_distance_travelled',
+          self.local_distance_travelled,
+          self.step)
+      self.recorder.record_scalar(
+          'weights/global_distance_travelled',
+          global_distance_travelled,
+          self.step)
+      self.recorder.record_scalar(
+          'weights/local_global_distance_ratio',
+          self.local_distance_travelled / global_distance_travelled,
+          self.step)
+
+      # tf.logging.info('local_dist={} global_dist={} ratio={}'.format(
+      #     self.local_distance_travelled,
+      #     global_distance_travelled,
+      #     self.local_distance_travelled / global_distance_travelled
+      # ))
+
+      # We want the Hessian to be evaluated at the previous point, where
+      # the update was computed
+      self.model.set_weights(self.weights)
+      v = flat_weights_update
+      Hv = tfutils.compute_sample_mean_tensor(
+          self.model, self.train_batches, self.Hv, {self.v: v})
+      overlap = np.dot(v, Hv) / np.linalg.norm(v) / np.linalg.norm(Hv)
+      self.recorder.record_scalar(
+          'weights/hessian_update_overlap',
+          overlap,
+          self.step)
+      tf.logging.info('Hessian / weight-update overlap: {}'.format(overlap))
+      self.model.set_weights(new_weights)
+
+    self.weights = new_weights
+
+
 class GradientMeasurement(Measurement):
+  """Measure the gradient mean, noise, overlap with Hg, etc."""
 
   def __init__(self,
                recorder,
@@ -376,6 +466,7 @@ class GradientMeasurement(Measurement):
     tf.logging.info('Training gradients ...')
     train_stats, self.full_batch_g, self.full_batch_Hg = (
         self._compute_gradients(self.train_batches, logs, prefix='', prnt=True))
+    # print('full_batch_g:', self.full_batch_g[:10])
     self.recorder.record_tensor(
         FULL_BATCH_G, self.full_batch_g, self.step, save_summary=False)
     self.recorder.record_tensor(

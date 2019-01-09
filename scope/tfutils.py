@@ -218,6 +218,11 @@ def clone_keras_model_shared_weights(
   return clone
 
 
+def flatten_array_list(arrays):
+  """Flatten and concat a list of numpy arrays into a single rank 1 vector."""
+  return np.concatenate([np.reshape(a, [-1]) for a in arrays], axis=0)
+
+
 def flatten_tensor_list(tensors):
   """Flatten and concat a list of tensors into a single rank 1 tensor."""
   return tf.concat([tf.reshape(t, [-1]) for t in tensors], axis=0)

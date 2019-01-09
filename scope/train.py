@@ -165,6 +165,10 @@ flags.DEFINE_string(
 flags.DEFINE_string(
     'gradients', None, 'Collect gradient statistics at given frequency '
     '(e.g. "1", "2epochs", "10steps")')
+flags.DEFINE_string(
+    'weight_updates', None,
+    'Measure weight updates and Hessian-update overlap '
+    'at given frequency (e.g. "1", "2epochs", "10steps")')
 flags.DEFINE_boolean('random_overlap', False,
                      'Compute overlaps of the Hessian with random vectors')
 flags.DEFINE_string(
@@ -210,7 +214,10 @@ flags.DEFINE_string('gpu', '0', 'Which GPU to use')
 flags.DEFINE_boolean('cpu', False, 'Use CPU instead of GPU')
 flags.DEFINE_integer('seed', None, 'Set the random seed')
 flags.DEFINE_boolean('nothing', False, 'Do nothing (for sanity testing)')
-flags.DEFINE_boolean('save_final_weights_vector', False,
+flags.DEFINE_string('save_weights', None,
+                    'Save the per-layer weights as a summary at the given '
+                    'frequency (e.g. "1", "2epochs", "10steps")')
+flags.DEFINE_boolean('save_final_flat_weights_vector', False,
                      'Save the final trained weights vector as a '
                      'flat vector summary')
 flags.DEFINE_integer('prefetch_buffer_size', 10,
@@ -300,6 +307,8 @@ def run_name():  # pylint: disable=too-many-branches
     name += '-lrDecaySched{},{}'.format(
         xFLAGS.lr_linear_decay_alpha,
         xFLAGS.lr_linear_decay_T)
+  if xFLAGS.momentum is not None:
+    name += '-mom{}'.format(xFLAGS.momentum)
   if xFLAGS.iid_batches:
     name += '-iid'
   name += '-batch{}'.format(xFLAGS.batch_size)
@@ -559,7 +568,7 @@ def get_data():
 
 def create_model(input_shape):
   """Returns the Keras model for training."""
-  
+
   if is_regression():
     model = models.regression_fc_model(xFLAGS, xFLAGS.output_dim)
   elif xFLAGS.fc is not None:
@@ -623,6 +632,11 @@ def add_callbacks(
     weight_norm_cb = meas.WeightNormMeasurement(recorder, model, freq)
     callbacks.append(weight_norm_cb)
 
+  if xFLAGS.save_weights is not None:
+    freq = meas.Frequency.from_string(xFLAGS.save_weights)
+    weights_cb = meas.WeightsMeasurement(recorder, model, freq)
+    callbacks.append(weights_cb)
+
   grad_cb = None
   if xFLAGS.gradients is not None:
     train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
@@ -630,6 +644,13 @@ def add_callbacks(
     grad_cb = meas.GradientMeasurement(recorder, model, freq, train_batches,
                                        test_batches, xFLAGS.random_overlap)
     callbacks.append(grad_cb)
+
+  if xFLAGS.weight_updates is not None:
+    train_batches, test_batches = get_batch_makers(xFLAGS.measure_batch_size)
+    freq = meas.Frequency.from_string(xFLAGS.weight_updates)
+    weight_update_cb = meas.WeightUpdateMeasurement(
+        recorder, model, freq, train_batches, test_batches)
+    callbacks.append(weight_update_cb)
 
   if xFLAGS.hessian is not None:
     freq = meas.Frequency.from_string(xFLAGS.hessian)
@@ -885,6 +906,8 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
     base_model, next_batch[0], next_batch[1])
 
   train_step = tf_opt.minimize(model.total_loss)
+  # grads_and_vars = tf_opt.compute_gradients(model.total_loss)
+  # train_step = tf_opt.apply_gradients(grads_and_vars)
 
   sess.run(tf.global_variables_initializer(), feed_dict=lr_schedule.feed_dict())
   step = 0
@@ -999,7 +1022,7 @@ def main(argv):
 
   tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks)
 
-  if xFLAGS.save_final_weights_vector:
+  if xFLAGS.save_final_flat_weights_vector:
     weights = model.get_weights()
     flat_weights = np.concatenate([np.reshape(t, [-1]) for t in weights])
     recorder.record_tensor('final_weights', flat_weights, step=-1)
