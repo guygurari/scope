@@ -720,11 +720,13 @@ def add_callbacks(
     callbacks.append(gauss_cb)
 
 
-def save_model_weights(model):
+def save_model_weights(model, save_dir=None, model_filename=None):
   """Save the model."""
-  save_dir = xFLAGS.runlogdir + '/saved_models'
+  if save_dir is None:
+    save_dir = xFLAGS.runlogdir + '/saved_models'
   tf.gfile.MakeDirs(save_dir)
-  model_filename = '{}-model-weights.h5'.format(xFLAGS.uid)
+  if model_filename is None:
+    model_filename = '{}-model-weights.h5'.format(xFLAGS.uid)
   model_weights_path = os.path.join(save_dir, model_filename)
 
   # TODO when h5py 2.9.0 is available, we can create the h5py.File
@@ -896,6 +898,9 @@ def get_tf_dataset(x, y, lr_schedule):
 
 def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks):
   """TensorFlow training loop."""
+  step = 0
+  epoch = 0
+
   train_ds = get_tf_dataset(x_train, y_train, lr_schedule)
   iterator = tf.data.Iterator.from_structure(train_ds.output_types,
                                              train_ds.output_shapes)
@@ -908,19 +913,6 @@ def tf_train(sess, x_train, y_train, base_model, tf_opt, lr_schedule, callbacks)
   train_step = tf_opt.minimize(model.total_loss)
   # grads_and_vars = tf_opt.compute_gradients(model.total_loss)
   # train_step = tf_opt.apply_gradients(grads_and_vars)
-
-  sess.run(tf.global_variables_initializer(), feed_dict=lr_schedule.feed_dict())
-  step = 0
-  epoch = 0
-
-  if xFLAGS.load_weights is not None:
-    # Load the model weights instead of the whole model, because Keras
-    # has a bug saving/loading models that use InputLayer.
-    # https://github.com/keras-team/keras/issues/10417
-    #
-    # Only load the weights after calling the global variables initializer,
-    # otherwise the loaded weights get overwritten.
-    load_model_weights(xFLAGS.load_weights, model)
 
   for callback in callbacks:
     callback.set_model(base_model)
@@ -1019,6 +1011,17 @@ def main(argv):
     lr_schedule.set_recorder(recorder)
 
   tf.logging.info('Training...')
+
+  sess.run(tf.global_variables_initializer(), feed_dict=lr_schedule.feed_dict())
+
+  if xFLAGS.load_weights is not None:
+    # Load the model weights instead of the whole model, because Keras
+    # has a bug saving/loading models that use InputLayer.
+    # https://github.com/keras-team/keras/issues/10417
+    #
+    # Only load the weights after calling the global variables initializer,
+    # otherwise the loaded weights get overwritten.
+    load_model_weights(xFLAGS.load_weights, model)
 
   tf_train(sess, x_train, y_train, model, tf_opt, lr_schedule, callbacks)
 
