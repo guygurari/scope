@@ -49,26 +49,9 @@ import numpy as np
 import os
 import scope.models as models
 
-# Training parameters
-batch_size = 64  # orig paper trained all networks with batch_size=128
-epochs = 30
-data_augmentation = False
-num_classes = 10
 
-# Subtracting pixel mean improves accuracy
-subtract_pixel_mean = False
 
-n = 2
 
-# Model version
-# Orig paper: version = 1 (ResNet v1), Improved ResNet: version = 2 (ResNet v2)
-version = 2
-
-# Computed depth from supplied model parameter n
-depth = n * 9 + 2
-
-# Model name, depth and version
-model_type = 'ResNet%dv%d' % (depth, version)
 
 
 # Load the CIFAR10 data.
@@ -95,6 +78,15 @@ y_test = keras.utils.to_categorical(y_test, num_classes)
 
 
 lr=1e-3
+# Training parameters
+batch_size = 64  # orig paper trained all networks with batch_size=128
+epochs = 30
+num_classes = 10
+n = 2
+# Computed depth from supplied model parameter n
+depth = n * 9 + 2
+
+
 model = models.resnet_v2(input_shape=input_shape, depth=depth)
 
 model.compile(loss='categorical_crossentropy',
