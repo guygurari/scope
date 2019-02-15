@@ -99,8 +99,7 @@ print(model_type)
 model.fit(x_train, y_train,
             batch_size=batch_size,
             epochs=epochs,
-            validation_data=(x_test, y_test),
-            shuffle=True)
+            validation_data=(x_test, y_test))
 
 # Score trained model.
 scores = model.evaluate(x_test, y_test, verbose=1)
