@@ -556,7 +556,8 @@ def get_data():
   def normalize(x, x_for_mean):
     """Put the data between [xmin, xmax] in a data independent way."""
     mean = np.mean(x_for_mean)
-    return (x - mean) / 255
+    return x / 255
+    #return (x - mean) / 255
 
   x_train = x_train.astype('float32')
   x_test = x_test.astype('float32')

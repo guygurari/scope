@@ -1,0 +1,21 @@
+### RESNETS AND SCOPE DIFFERENTIAL LOG for 50 epochs, 
+### RESNET20 v2, 200epoch accuracy ~ .92 with lr schedule, adam lr 0.001
+
+'scope standard, mean substraction' 25: acc .867, val_acc .435 50: acc 0.904, val_acc: 0.431
+
+-mean substraction
+
+'scope, no mean substraction' 25: acc .808, val_acc .671 50: acc 0.838, val_acc: 0.683
+
++keras loop
+
+' scope with keras fit loop no mean substraction' 25: acc .9421, val_acc .7187 50: acc 0.953, val_acc: 0.7206
+
++pixel mean substraction
+
+'pixel mean substraction' 25: acc .941, val_acc .602 50: acc 0.9558, val_acc: 0.7604
+
++data augmentation
+
+'data augmentation+ pixel mean substraction' 25: acc .867, val_acc .813 50: acc 0.8978, val_acc: 0.8501 
+
