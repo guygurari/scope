@@ -96,10 +96,10 @@ flags.DEFINE_boolean('lr_overlap_schedule', False,
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
                    'Must be specified with --iid_batches.')
-## AITOR COMMIT
+
 flags.DEFINE_boolean('resnetv2', False,
                      'Consider the  Resnetv2 from keras.examples')
-## AITOR COMMIT
+
 flags.DEFINE_float('resample_prob_decay_T', None,
                    'T defining resample probability decay. '
                    'If this is specified, it will start at --resample_prob '
@@ -276,12 +276,10 @@ def run_name():  # pylint: disable=too-many-branches
   name += '-' + xFLAGS.activation
 
   if xFLAGS.fc is None:
-  ## Aitor commit
     if not xFLAGS.resnetv2:
       name += '-cnn'
     else:
       name +='-resnet'
-  ## Aitor commit
   else:
     name += '-fc' + xFLAGS.fc
   if xFLAGS.small_cnn:
@@ -296,10 +294,8 @@ def run_name():  # pylint: disable=too-many-branches
   if xFLAGS.batch_norm:
     name += '-batchnorm'
   else:
-  ## Aitor commit
     if not xFLAGS.resnetv2:
       name += '-nobatchnorm'
-  ## Aitor commit
   if xFLAGS.dropout:
     name += '-dropout'
   else:
@@ -386,10 +382,8 @@ def init_flags():
     fatal('Unsupported dataset {}. '
           'Supported datasets: mnist(_eo), '
           'sine, cifar10, gaussians'.format(xFLAGS.dataset))
-## AITOR COMMIT
   if xFLAGS.fc is None and not xFLAGS.cnn and not xFLAGS.resnetv2:
     fatal('Must specify either --cnn or --fc or --resnet')
-## AITOR COMMIT
 
   if is_regression():
     if xFLAGS.fc is None:
@@ -591,14 +585,12 @@ def create_model(input_shape):
   elif xFLAGS.small_cnn:
     model = models.classification_small_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
-  ## AITOR COMMIT
   elif xFLAGS.resnetv2:
    # from keras.examples.cifar10_resnet import resnet_v2
     #from scope.models import resnet_v2
     n=2
     depth = n * 9 + 2
     model=models.resnet_v2(input_shape=input_shape, depth=depth, num_classes=xFLAGS.num_classes)
-## AITOR COMMIT
   else:
     model = models.classification_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
