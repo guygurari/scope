@@ -96,6 +96,10 @@ flags.DEFINE_boolean('lr_overlap_schedule', False,
 flags.DEFINE_float('resample_prob', 1,
                    'Probability each sample being replaced at each step. '
                    'Must be specified with --iid_batches.')
+
+flags.DEFINE_boolean('resnetv2', False,
+                     'Consider the  Resnetv2 from keras.examples')
+
 flags.DEFINE_float('resample_prob_decay_T', None,
                    'T defining resample probability decay. '
                    'If this is specified, it will start at --resample_prob '
@@ -272,7 +276,10 @@ def run_name():  # pylint: disable=too-many-branches
   name += '-' + xFLAGS.activation
 
   if xFLAGS.fc is None:
-    name += '-cnn'
+    if not xFLAGS.resnetv2:
+      name += '-cnn'
+    else:
+      name +='-resnet'
   else:
     name += '-fc' + xFLAGS.fc
   if xFLAGS.small_cnn:
@@ -287,7 +294,8 @@ def run_name():  # pylint: disable=too-many-branches
   if xFLAGS.batch_norm:
     name += '-batchnorm'
   else:
-    name += '-nobatchnorm'
+    if not xFLAGS.resnetv2:
+      name += '-nobatchnorm'
   if xFLAGS.dropout:
     name += '-dropout'
   else:
@@ -374,9 +382,8 @@ def init_flags():
     fatal('Unsupported dataset {}. '
           'Supported datasets: mnist(_eo), '
           'sine, cifar10, gaussians'.format(xFLAGS.dataset))
-
-  if xFLAGS.fc is None and not xFLAGS.cnn:
-    fatal('Must specify either --cnn or --fc')
+  if xFLAGS.fc is None and not xFLAGS.cnn and not xFLAGS.resnetv2:
+    fatal('Must specify either --cnn or --fc or --resnet')
 
   if is_regression():
     if xFLAGS.fc is None:
@@ -543,7 +550,8 @@ def get_data():
   def normalize(x, x_for_mean):
     """Put the data between [xmin, xmax] in a data independent way."""
     mean = np.mean(x_for_mean)
-    return (x - mean) / 255
+    return x / 255
+    #return (x - mean) / 255
 
   x_train = x_train.astype('float32')
   x_test = x_test.astype('float32')
@@ -577,6 +585,12 @@ def create_model(input_shape):
   elif xFLAGS.small_cnn:
     model = models.classification_small_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
+  elif xFLAGS.resnetv2:
+   # from keras.examples.cifar10_resnet import resnet_v2
+    #from scope.models import resnet_v2
+    n=2
+    depth = n * 9 + 2
+    model=models.resnet_v2(input_shape=input_shape, depth=depth, num_classes=xFLAGS.num_classes)
   else:
     model = models.classification_convnet_model(
         xFLAGS, input_shape, xFLAGS.num_classes)
