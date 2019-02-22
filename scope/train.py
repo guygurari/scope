@@ -35,9 +35,9 @@ import tensorflow as tf
 
 from tensorflow.python.client import device_lib
 
-import keras
-import keras.backend as K
-from keras.preprocessing.image import ImageDataGenerator
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import colored_traceback
 
 import scope.datasets

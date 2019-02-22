@@ -7,8 +7,8 @@ from __future__ import print_function
 import sys
 import numpy as np
 import tensorflow as tf
-import keras
-import keras.backend as K
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
 from time import time
 import scope.lanczos as lanczos
 
@@ -212,7 +212,7 @@ def clone_keras_model_shared_weights(
     outputs=model(input_tensor))
   clone.compile(
       loss=model.loss,
-      target_tensors=target_tensor,
+      target_tensors=[target_tensor],
       optimizer=model.optimizer,
       metrics=model.metrics)
   return clone

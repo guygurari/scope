@@ -9,8 +9,8 @@ import re
 import collections
 import numpy as np
 import tensorflow as tf
-import keras
-import keras.backend as K
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
 import scope.tfutils as tfutils
 from scope.tfutils import Timer, NumpyPrintEverything
 from absl import flags

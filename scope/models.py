@@ -4,16 +4,18 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import keras
-from keras.layers import Dense, Activation, Flatten, Dropout
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
-from keras.layers import Dense, Conv2D, BatchNormalization, Activation
-from keras.layers import AveragePooling2D, Input, Flatten
-from keras.regularizers import l2
+import tensorflow
+import tensorflow.keras as keras
 
+from tensorflow.python.keras.layers import Dense, Activation, Flatten, Dropout
+from tensorflow.python.keras.layers import Conv2D, MaxPooling2D, BatchNormalization
+from tensorflow.python.keras.layers import Dense, Conv2D, BatchNormalization, Activation
+from tensorflow.python.keras.layers import AveragePooling2D, Input, Flatten
+from tensorflow.python.keras.regularizers import l2
 
-from keras import backend as K
-from keras.models import Model
+from tensorflow.python.keras import backend as K
+from tensorflow.python.keras.models import Model, Sequential
+
 def _dense_layer(cmd_args, *args, **kwargs):
   """Create a Dense layer with biases and regularization as specified by
 
@@ -54,7 +56,7 @@ def add_dense_layers(args, model, widths, input_shape=None):
 
     if args.batch_norm:
       if args.mean_to_zero:
-        bconstraint=keras.constraints.MaxNorm(max_value=0)
+        bconstraint = keras.constraints.MaxNorm(max_value=0)
       else:
         bconstraint=None
       model.add(BatchNormalization(beta_constraint=bconstraint))
@@ -65,7 +67,7 @@ def add_dense_layers(args, model, widths, input_shape=None):
 
 def regression_fc_model(args, output_dim):
   """Fully-connected regression"""
-  model = keras.models.Sequential()
+  model = Sequential()
   if not args.fc_widths:
     model.add(
         _dense_layer(args, output_dim, name='regression_map', input_shape=(1,)))
@@ -308,7 +310,8 @@ def resnet_layer(inputs,
                  strides=1,
                  activation='relu',
                  batch_normalization=True,
-                 conv_first=True):
+                 conv_first=True,
+                 fused_batch_norm=False):
 
 
     """2D Convolution-Batch Normalization-Activation stack builder
@@ -321,6 +324,8 @@ def resnet_layer(inputs,
         batch_normalization (bool): whether to include batch normalization
         conv_first (bool): conv-bn-activation (True) or
             bn-activation-conv (False)
+        fused_batch_norm (bool): whether to use fused implementation of
+            bn (leads to infinite loop with Hessian-vector products).
     # Returns
         x (tensor): tensor as input to the next layer
     """
@@ -335,18 +340,18 @@ def resnet_layer(inputs,
     if conv_first:
         x = conv(x)
         if batch_normalization:
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=fused_batch_norm)(x)
         if activation is not None:
             x = Activation(activation)(x)
     else:
         if batch_normalization:
-            x = BatchNormalization()(x)
+            x = BatchNormalization(fused=fused_batch_norm)(x)
         if activation is not None:
             x = Activation(activation)(x)
         x = conv(x)
     return x
 
-def resnet_v2(input_shape, depth, num_classes=10):
+def resnet_v2(input_shape, depth, num_classes=10, fused_batch_norm=False):
     """ResNet Version 2 Model builder [b]
     Stacks of (1 x 1)-(3 x 3)-(1 x 1) BN-ReLU-Conv2D or also known as
     bottleneck layer
@@ -379,7 +384,8 @@ def resnet_v2(input_shape, depth, num_classes=10):
     # v2 performs Conv2D with BN-ReLU on input before splitting into 2 paths
     x = resnet_layer(inputs=inputs,
                      num_filters=num_filters_in,
-                     conv_first=True)
+                     conv_first=True,
+                     fused_batch_norm=fused_batch_norm)
 
     # Instantiate the stack of residual units
     for stage in range(3):
@@ -427,7 +433,7 @@ def resnet_v2(input_shape, depth, num_classes=10):
 
     # Add classifier on top.
     # v2 has BN-ReLU before Pooling
-    x = BatchNormalization()(x)
+    x = BatchNormalization(fused=fused_batch_norm)(x)
     x = Activation('relu')(x)
     x = AveragePooling2D(pool_size=8)(x)
     y = Flatten()(x)

@@ -8,8 +8,8 @@ import unittest
 import numpy as np
 import scipy
 import tensorflow as tf
-import keras
-import keras.backend as K
+import tensorflow.keras
+import tensorflow.keras.backend as K
 
 import scope.tfutils as tfutils
 import scope.lanczos as lanczos

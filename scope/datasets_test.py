@@ -5,7 +5,7 @@ from __future__ import print_function
 import unittest
 import numpy as np
 import tensorflow as tf
-import keras
+import tensorflow.keras as keras
 import scope.datasets
 
 import colored_traceback

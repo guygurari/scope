@@ -29,8 +29,8 @@ from absl import app
 from absl import flags
 
 import numpy as np
-import keras
-import keras.backend as K
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
 import tensorflow as tf
 
 FLAGS = flags.FLAGS
