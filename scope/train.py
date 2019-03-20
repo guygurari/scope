@@ -187,6 +187,10 @@ flags.DEFINE_integer('hessian_num_evs', 10,
                      'How many Hessian eigenvalues to measure')
 flags.DEFINE_integer('hessian_batch_size', 2048,
                      'Batch size when computing Hessian spectrum (-1 for all)')
+flags.DEFINE_boolean('stochastic_hessian', False,
+                     'If True, compute a stochastic approximation to the Hessian'
+                     ' instead of full-batch. --hessian_batch_size is the'
+                     ' batch size to use for the approximation.')
 flags.DEFINE_string(
     'full_hessian', None, 'Measure the full Hessian spectrum at given frequency'
     ' (e.g. "1", "2epochs", "10steps")')
@@ -676,6 +680,7 @@ def add_callbacks(
         x_train,
         y_train,
         xFLAGS.hessian_batch_size,
+        xFLAGS.stochastic_hessian,
         lr=xFLAGS.lr,
         log_dir=xFLAGS.runlogdir)
     callbacks.append(hess_cb)

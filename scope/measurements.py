@@ -576,6 +576,7 @@ class LanczosHessianMeasurement(Measurement):
                x_train,
                y_train,
                batch_size,
+               stochastic_hessian,
                lr,
                log_dir,
                weights=None,
@@ -595,6 +596,7 @@ class LanczosHessianMeasurement(Measurement):
     self.num_evs = num_evs
     self.lr = lr
     self.grad_subvec = grad_subvec
+    self.stochastic_hessian = stochastic_hessian
 
     self.name = name
     self.log_prefix = '' if name is None else '({}) '.format(name)
@@ -609,7 +611,7 @@ class LanczosHessianMeasurement(Measurement):
       self.weights = weights
 
     self.hessian_spec = tfutils.KerasHessianSpectrum(
-        model, x_train, y_train, batch_size, weights)
+        model, x_train, y_train, batch_size, stochastic_hessian, weights)
 
     self.prev_evecs = None
     if name is None:
@@ -621,10 +623,17 @@ class LanczosHessianMeasurement(Measurement):
 
   def measure(self, logs):
     """Compute parts of the Hessian spectrum"""
-    tf.logging.info('{}Computing {} H evs with Lanczos ...'.format(
-      self.log_prefix, self.num_evs))
+    tf.logging.info('{}Computing {} H evs with Lanczos (stochastic={})...'.format(
+      self.log_prefix, self.num_evs, self.stochastic_hessian))
+
+    v0 = None
+    # if self.recorder.is_recorded(FULL_BATCH_G, self.step):
+    #   v0 = self.recorder.get_measurement(FULL_BATCH_G, self.step)
+    # else:
+    #   v0 = None
+
     evals, evecs = self.hessian_spec.compute_spectrum(
-        self.num_evs, show_progress=True)
+        self.num_evs, v0=v0, show_progress=True)
 
     secs_per_iter = self.hessian_spec.lanczos_secs \
                     / self.hessian_spec.lanczos_iterations

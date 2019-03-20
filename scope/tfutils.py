@@ -697,15 +697,18 @@ class TensorListStatistics(list):
 class KerasHessianSpectrum:
   """Computes the partial Hessian spectrum of a Keras model using Lanczos."""
 
-  def __init__(self, model, x, y, batch_size=1024, weights=None, loss=None):
+  def __init__(self, model, x, y, batch_size=1024, stochastic=False,
+               weights=None, loss=None):
     """model is a keras sequential model.
 
     Args:
         model: A Keras Model
         x: Training samples
         y: Training labels
-        batch_size: Batch size for computing the Hessian (affects performance
-            but not results)
+        batch_size: Batch size for computing the Hessian. Does not affect the
+            result, only affects time and memory performance.
+        stochastic: If True, approximate the Hessian using batch_size samples,
+            chosen at random with each call to compute_spectrum().
         weights: Weights with respect to which to compute the Hessian.
             Can be a weight tensor or a list of tensors. If None,
             all model weights are used.
@@ -725,6 +728,8 @@ class KerasHessianSpectrum:
     self._loss = loss
     self._Hv = None
     self.train_batches = MiniBatchMaker(x, y, batch_size)
+    self.batch_size = batch_size
+    self.stochastic = stochastic
 
   @property
   def loss(self):
@@ -745,25 +750,64 @@ class KerasHessianSpectrum:
       self._Hv = hessian_vector_product(self.loss, self.weights, self.v)
     return self._Hv
 
-  def compute_spectrum(self, k, show_progress=False):
-    """Compute k leading eigenvalues and eigenvectors."""
-    self.lanczos_iterations = 0
+  def compute_spectrum(self, k, v0=None, show_progress=False):
+    """Compute k leading eigenvalues and eigenvectors.
+    
+    Args:
+      v0: If specified, use as initial vector for Lanczos.
+    """
     timer = Timer()
-    evals, evecs = lanczos.eigsh(self.num_weights, np.float32,
-                                 lambda v: self._compute_Hv(v, show_progress),
-                                 k)
+    if self.stochastic:
+      results = self._compute_stochastic_spectrum(k, v0, show_progress)
+    else:
+      results = self._compute_full_batch_spectrum(k, v0, show_progress)
     self.lanczos_secs = timer.secs
     if show_progress:
       tf.logging.info('')
+    return results
+
+  def _compute_full_batch_spectrum(self, k, v0=None, show_progress=False):
+    self.lanczos_iterations = 0
+
+    def compute_Hv(v):
+      if show_progress:
+        print('.', end='')
+        sys.stdout.flush()
+      self.lanczos_iterations += 1
+      return compute_sample_mean_tensor(self.model, self.train_batches, self.Hv,
+                                        {self.v: v})
+    
+    evals, evecs = lanczos.eigsh(
+      n=self.num_weights, dtype=np.float32, matvec=compute_Hv, k=k, v0=v0)
     return evals, evecs
 
-  def _compute_Hv(self, v, show_progress):
-    if show_progress:
-      print('.', end='')
-      sys.stdout.flush()
-    self.lanczos_iterations += 1
-    return compute_sample_mean_tensor(self.model, self.train_batches, self.Hv,
-                                      {self.v: v})
+  def _compute_stochastic_spectrum(self, k, v0=None, show_progress=False):
+    """Compute k leading eigenvalues and eigenvectors.
+    
+    Each time this method is called, a new batch is selected to approximate
+    the Hessian.
+    """
+    self.lanczos_iterations = 0
+
+    x_batch, y_batch = self.train_batches.next_batch()
+    if len(x_batch) < self.batch_size:
+      assert self.train_batches.at_start_of_epoch()
+      x_batch, y_batch = self.train_batches.next_batch()
+      if len(x_batch) < self.batch_size:
+        raise ValueError("Getting batches that are too small: {} < {}".format(
+          len(x_batch), self.batch_size))
+
+    def compute_Hv(v):
+      if show_progress:
+        print('.', end='')
+        sys.stdout.flush()
+      self.lanczos_iterations += 1
+      return keras_compute_tensors(self.model, x_batch, y_batch, self.Hv,
+                                   {self.v: v})
+
+    evals, evecs = lanczos.eigsh(
+      n=self.num_weights, dtype=np.float32, matvec=compute_Hv, k=k, v0=v0)
+    return evals, evecs
 
 
 #############
