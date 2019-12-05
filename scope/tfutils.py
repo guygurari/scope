@@ -44,7 +44,7 @@ class NumpyPrintEverything:
 
   def __enter__(self):
     self.saved_threshold = np.get_printoptions()['threshold']
-    np.set_printoptions(threshold=np.nan)
+    np.set_printoptions(threshold=np.inf)
 
   def __exit__(self, type, value, traceback):
     np.set_printoptions(threshold=self.saved_threshold)
