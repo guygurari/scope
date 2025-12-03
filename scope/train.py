@@ -748,8 +748,9 @@ def save_model_weights(model, save_dir=None, model_filename=None):
     model_filename = '{}-model-weights.h5'.format(xFLAGS.uid)
   model_weights_path = os.path.join(save_dir, model_filename)
 
-  # TODO when h5py 2.9.0 is available, we can create the h5py.File
-  #      using a tf.gfile.GFile object and skip the temp file.
+  # NOTE: h5py 2.9.0+ is now widely available (current version is 3.x).
+  #       This workaround can be removed by creating h5py.File using a
+  #       tf.gfile.GFile object directly, skipping the temp file.
   tmp_model_weights_path = os.path.join(tempfile.gettempdir(), model_filename)
   # model.save(tmp_model_weights_path)
   model.save_weights(tmp_model_weights_path)
